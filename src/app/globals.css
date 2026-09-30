@@ -3,11 +3,17 @@
 :root {
   --background: #470000;
   --foreground: #ffffff;
+  --surface: #5c0a0a;
+  --muted: #e5b8b8;
+  --line: #7a2222;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -21,4 +27,13 @@ body {
 }
 @utility btn-primary {
   @apply inline-flex items-center justify-center rounded-md bg-foreground px-4 py-2 font-medium text-background hover:opacity-90 disabled:opacity-50;
+}
+@utility input {
+  @apply w-full rounded-md border border-line bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-foreground;
+}
+@utility card {
+  @apply rounded-lg border border-line bg-surface p-4;
+}
+@utility label {
+  @apply block text-sm font-medium text-foreground;
 }

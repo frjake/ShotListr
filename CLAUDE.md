@@ -11,7 +11,7 @@ See `README.md` for setup. Dev server runs on **port 8000**.
 - Prisma 7 with the `prisma-client` generator → output `src/generated/prisma` (gitignored; run
   `npx prisma generate`). SQLite via `@prisma/adapter-better-sqlite3`; the client singleton is
   `src/lib/db.ts`. Config lives in `prisma.config.ts` (URL comes from `.env` via dotenv), not in the schema.
-  The schema has no models yet.
+  Models: `User`, `Session`.
 - Node ≥ 22. `better-sqlite3` and Prisma have install scripts; npm may need
   `npm approve-scripts better-sqlite3 prisma @prisma/engines`.
 - Next 16 specifics: `params`/`searchParams` are Promises; `cookies()` is async; use the global
@@ -24,14 +24,33 @@ See `README.md` for setup. Dev server runs on **port 8000**.
 - Schema change → edit `prisma/schema.prisma` → `npm run db:migrate -- --name <what>`.
 - Unit tests live in `tests/` and cover pure modules only; anything importing `server-only` can't be unit-tested there.
 
+## Repo map
+
+```
+src/lib/db.ts         Prisma client singleton (adapter wired here)
+src/lib/auth.ts       server-only: bcrypt, DB sessions, cookie `shotlistr_session`, getCurrentUser() (React cache), requireUser()
+src/lib/constants.ts  SESSION_COOKIE, SESSION_TTL_MS (30 days)
+src/app/actions/      'use server' files: auth (register, login, logout)
+src/components/       Nav (shows Log in / Sign up, or @username + Log out)
+```
+
+Routes: `/`, `/login`, `/register`, `/shotlists` and `/shotlists/new` (both require login).
+
 ## Conventions
 
 - **Never export non-action helpers from a `'use server'` file** — every export becomes a
   public POST endpoint. Shared helpers go in `src/lib`.
+- **Auth.** Pages that need a user call `requireUser("/current/path")`, which redirects to
+  `/login?next=…`; the login/register actions send the user back to `next` (same-origin paths only).
+  Pages and components get a `SafeUser` (never the password hash). Login uses one error message
+  for unknown user and wrong password.
 - Server components can be async and query Prisma directly; client components (`'use client'`)
   call actions via `<form action>` / `useActionState`.
 
 ## Gotchas
+
+- `prisma migrate dev` does **not** run `prisma generate` in Prisma 7 — run it yourself afterwards.
+- React 19 resets uncontrolled form fields after a form action, so a failed login clears the username too.
 
 - `.env` is gitignored and user-owned (`DATABASE_URL`). `.env.example` documents it.
 - **After a migration / `prisma generate`, restart `next dev`.** The `globalThis` Prisma

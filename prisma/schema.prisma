@@ -8,3 +8,26 @@ generator client {
 datasource db {
   provider = "sqlite"
 }
+
+// ---------- Accounts ----------
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  sessions Session[]
+}
+
+model Session {
+  id        String   @id // random token stored in the cookie
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

@@ -22,13 +22,26 @@ Prisma 7 + SQLite (`better-sqlite3` driver adapter) · Vitest. Node ≥ 22.
    cp .env.example .env
    ```
 
-3. Run it:
+3. Create the database:
+
+   ```bash
+   npx prisma migrate dev
+   npx prisma generate
+   ```
+
+4. Run it:
 
    ```bash
    npm run dev
    ```
 
-   Open <http://localhost:8000>.
+   Open <http://localhost:8000> and sign up.
+
+## Accounts
+
+Sign up with a username, email and password (bcrypt-hashed). Logging in with either username or
+email creates a 30-day session stored in the database and referenced by an HttpOnly cookie.
+"My Shotlists" and "New Shotlist" require login and send you back there afterwards.
 
 ## Scripts
 
