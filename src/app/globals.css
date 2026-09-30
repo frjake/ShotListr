@@ -14,3 +14,11 @@
 body {
   font-family: var(--font-sans);
 }
+
+/* Small set of shared primitives used across pages. */
+@utility navlink {
+  @apply text-foreground/70 hover:text-foreground transition-colors;
+}
+@utility btn-primary {
+  @apply inline-flex items-center justify-center rounded-md bg-foreground px-4 py-2 font-medium text-background hover:opacity-90 disabled:opacity-50;
+}
