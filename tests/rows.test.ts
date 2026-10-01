@@ -6,6 +6,7 @@ import {
   deleteRows,
   dropTargets,
   emptyRow,
+  exportTable,
   renumberAfterDelete,
   moveRows,
   planSceneAt,
@@ -247,5 +248,21 @@ describe("renumberAfterDelete", () => {
   });
   it("is null when a subscene still uses the number", () => {
     expect(renumberAfterDelete(sheetOf("12", "12.1", "13"), 0)).toBeNull();
+  });
+});
+
+describe("exportTable", () => {
+  it("has one combined header and each row's number and fields in order", () => {
+    const rows = [
+      { ...emptyRow(SCENE), sceneNumber: "12", intExt: "INT.", location: "Kitchen", time: "DAY", characters: "Ana" },
+      { ...emptyRow(SHOT), subject: "Ana", framing: "CU", angle: "Low angle", description: "Pours tea" },
+      { ...emptyRow(SCENE), sceneNumber: "12.1" },
+    ];
+    expect(exportTable(rows)).toEqual([
+      ["Scene #/Shot #", "Int./Ext./Subject", "Location/Framing", "Time/Angle", "Characters/Description"],
+      ["12", "INT.", "Kitchen", "DAY", "Ana"],
+      ["12A", "Ana", "CU", "Low angle", "Pours tea"],
+      ["12.1", "", "", "", ""],
+    ]);
   });
 });

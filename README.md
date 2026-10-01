@@ -45,6 +45,11 @@ email creates a 30-day session stored in the database and referenced by an HttpO
 
 ## Shotlists
 
+**Download** (next to Save) exports the shotlist as a black-and-white Excel file (.xlsx) with one
+combined header row (Scene #/Shot #, Int./Ext./Subject, …); scene rows are bold. If there are
+unsaved changes you're asked whether to save first, and a shotlist without a title is named
+before it downloads.
+
 "My Shotlists" lists your saved shotlists as cards — title and when it was last saved — most
 recently saved first; click one to open it, or its × to delete it (you're asked to confirm). A shotlist needs a title before it can be saved (you're
 asked for one if it's blank). Leaving a shotlist with unsaved changes through the nav or Log out

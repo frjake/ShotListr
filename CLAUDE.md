@@ -33,6 +33,9 @@ src/lib/constants.ts  SESSION_COOKIE, SESSION_TTL_MS (30 days), ROW_KIND, cell s
 src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emptyRow, cleanRow, rowLabels (12, 12A, 12.1A…)
                       reorder/delete: blockEnd, dropTargets, moveRows, stepTarget, deleteRows
                       scene numbers: planSceneAt, shiftScenes, renumberScene, renumberAfterDelete
+                      export: EXPORT_HEADERS, exportTable (one combined header: "Scene #/Shot #" etc.)
+src/lib/exportShotlist.ts client: downloadShotlist(title, rows) → black-and-white .xlsx via ExcelJS (dynamic
+                      import, so it only loads on Download); numbers kept as text, scene rows bold
 src/lib/sceneNumbers.ts PURE: parse/format/compare scene numbers, nextSceneNumber, subsceneBetween, runRange, siblingRange, shiftRange
 src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, userId), toRowRecords
 src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist)
@@ -90,6 +93,12 @@ the last 404s unless you own it).
   new shotlist, `router.replace`s to `/shotlists/[id]`. Errors (incl. signed out) come back as
   `{ error }`, so unsaved edits survive. Only the Save button is inside the `<form>`, so Enter in a
   cell doesn't submit.
+- **Download** exports what's on screen (unsaved edits included) — but with unsaved changes it
+  asks first: Save and download / Download without saving / Cancel. "Save then …" goes through
+  `afterSave` (`{ type: "leave" | "download" }`), run by the save wrapper once the save succeeds;
+  a download after saving uses the submitted form data (so a title from `TitleDialog` is used).
+  Nothing downloads untitled: downloading without saving (no unsaved changes, or "Download without
+  saving") first asks for a title via `TitleDialog`, sets it (as an unsaved change) and downloads.
 - **Titles are required.** Save with a blank title opens `TitleDialog` instead (the form's
   `onSubmit` prevents the action); `shotlistSchema` also rejects blank titles.
 - **Unsaved changes** = the current title + rows JSON differs from the last saved snapshot

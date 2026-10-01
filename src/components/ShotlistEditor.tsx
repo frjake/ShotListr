@@ -7,6 +7,7 @@ import { saveShotlist } from "@/app/actions/shotlists";
 import { ChoiceCard, ChoiceDialog } from "@/components/ChoiceDialog";
 import { ComboboxInput } from "@/components/ComboboxInput";
 import { useNavigationGuard } from "@/components/NavigationGuard";
+import { downloadShotlist } from "@/lib/exportShotlist";
 import {
   ANGLE_OPTIONS,
   FRAMING_OPTIONS,
@@ -69,10 +70,17 @@ type Pending =
   | { type: "delete"; key: string; viaKeyboard: boolean }
   | { type: "insert"; boundary: number; placement: Extract<ScenePlacement, { type: "choose" }> }
   | { type: "move"; from: number; to: number; placement: Extract<ScenePlacement, { type: "choose" }>; viaKeyboard: boolean }
-  // Saving without a title asks for one first; `proceed` is where to go afterwards, if leaving.
-  | { type: "title"; proceed: (() => void) | null }
+  // Saving without a title asks for one first; `then` is what to do once it's saved, if anything.
+  | { type: "title"; then: AfterSave | null }
+  // Downloading with unsaved changes: save first, download anyway, or cancel.
+  | { type: "download" }
+  // Downloading without a title (and not saving): name it first, then download.
+  | { type: "downloadTitle" }
   // Leaving with unsaved changes: save first, leave anyway, or stay.
   | { type: "leave"; proceed: () => void };
+
+/** What to do once the save in flight succeeds: leave the page ("Save and leave") or download it. */
+type AfterSave = { type: "leave"; proceed: () => void } | { type: "download" };
 
 /** The editor's save state: the server's answer plus what was saved, to tell when there are unsaved changes. */
 type EditorSaveState = { error?: string; savedAt?: number; snapshot?: string } | undefined;
@@ -99,23 +107,29 @@ export function ShotlistEditor({
   const [pendingChoice, setPendingChoice] = useState<Pending | null>(null);
   const [numberError, setNumberError] = useState<{ key: string; message: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   // Which boundary's Insert pop-up is open. Only one at a time: showing one closes any other at once.
   const [openZone, setOpenZone] = useState<number | null>(null);
   const zoneCloseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const router = useRouter();
   const { setGuard } = useNavigationGuard();
   const saveFormEl = useRef<HTMLFormElement>(null);
-  // Where to go once the save in flight succeeds ("Save and leave").
-  const leaveAfterSave = useRef<(() => void) | null>(null);
+  const afterSave = useRef<AfterSave | null>(null);
   const [initialSnapshot] = useState(() => snapshotOf(initialTitle, JSON.stringify(initialRows.map(cleanRow))));
 
   const [state, action, pending] = useActionState(async (prev: EditorSaveState, formData: FormData): Promise<EditorSaveState> => {
-    const leave = leaveAfterSave.current;
-    leaveAfterSave.current = null;
+    const then = afterSave.current;
+    afterSave.current = null;
     const result = await saveShotlist(undefined, formData);
     if (!result?.savedAt || !result.id) return { snapshot: prev?.snapshot, error: result?.error ?? "Couldn't save the shotlist" };
-    if (leave) leave();
-    else if (!id) router.replace(`/shotlists/${result.id}`); // a new shotlist moves to its own page
+    if (then?.type === "leave") {
+      then.proceed();
+    } else {
+      // Download exactly what was saved (the title may have just come from the title prompt).
+      if (then?.type === "download") void exportFile(String(formData.get("title")), JSON.parse(String(formData.get("rows"))));
+      if (!id) router.replace(`/shotlists/${result.id}`); // a new shotlist moves to its own page
+    }
     return { savedAt: result.savedAt, snapshot: snapshotOf(String(formData.get("title")), String(formData.get("rows"))) };
   }, undefined);
 
@@ -331,21 +345,58 @@ export function ShotlistEditor({
     };
   }, [unsaved, setGuard, requestLeave]);
 
-  /** Saves with `newTitle` (from the title prompt), then goes to `proceed` if leaving. */
-  function saveWithTitle(newTitle: string, proceed: (() => void) | null) {
+  /** Builds and downloads an .xlsx of the given title and rows. */
+  async function exportFile(fileTitle: string, fileRows: RowData[]) {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await downloadShotlist(fileTitle.trim() || "Untitled shotlist", fileRows);
+    } catch {
+      setExportError("Couldn't create the spreadsheet. Try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /** The Download button: asks to save first if there are unsaved changes, then for a title if there isn't one. */
+  function download() {
+    if (unsaved) setPendingChoice({ type: "download" });
+    else downloadAsIs();
+  }
+
+  /** Downloads without saving; a shotlist without a title is named first (the title stays unsaved). */
+  function downloadAsIs() {
+    if (!title.trim()) return setPendingChoice({ type: "downloadTitle" });
+    closeDialog();
+    void exportFile(title, rows.map(cleanRow));
+  }
+
+  /** Sets the title from the title prompt and downloads, without saving. */
+  function downloadWithTitle(newTitle: string) {
     flushSync(() => {
       setTitle(newTitle);
       setPendingChoice(null);
     });
     dialogEl.current?.close();
-    leaveAfterSave.current = proceed;
+    void exportFile(newTitle, rows.map(cleanRow));
+  }
+
+  /** Saves with `newTitle` (from the title prompt), then does `then`, if anything. */
+  function saveWithTitle(newTitle: string, then: AfterSave | null) {
+    flushSync(() => {
+      setTitle(newTitle);
+      setPendingChoice(null);
+    });
+    dialogEl.current?.close();
+    afterSave.current = then;
     saveFormEl.current?.requestSubmit();
   }
 
-  function saveAndLeave(proceed: () => void) {
-    if (!title.trim()) return setPendingChoice({ type: "title", proceed });
+  /** "Save and leave" / "Save and download": asks for a title first if there isn't one. */
+  function saveThen(then: AfterSave) {
+    if (!title.trim()) return setPendingChoice({ type: "title", then });
     closeDialog();
-    leaveAfterSave.current = proceed;
+    afterSave.current = then;
     saveFormEl.current?.requestSubmit();
   }
   // Clear the choice in the same update as the change it made, so the dialog never renders
@@ -360,13 +411,16 @@ export function ShotlistEditor({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <h1 className="text-2xl font-semibold">{heading}</h1>
         <div className="ml-auto flex items-center gap-3">
-          {state?.error ? (
-            <p role="alert" className="text-sm text-red-300">{state.error}</p>
+          {exportError || state?.error ? (
+            <p role="alert" className="text-sm text-red-300">{exportError ?? state?.error}</p>
           ) : (
             state?.savedAt && (
               <p className="text-sm text-muted">Saved at {new Date(state.savedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
             )
           )}
+          <button type="button" className="btn-secondary" disabled={exporting} onClick={download}>
+            {exporting ? "Preparing…" : "Download"}
+          </button>
           {/* Only the button is inside the form, so Enter in a cell doesn't submit. */}
           <form
             ref={saveFormEl}
@@ -375,7 +429,7 @@ export function ShotlistEditor({
               // No title yet: ask for one instead of saving (a prevented submit doesn't run the action).
               if (title.trim()) return;
               e.preventDefault();
-              setPendingChoice({ type: "title", proceed: null });
+              setPendingChoice({ type: "title", then: null });
             }}
           >
             {id && <input type="hidden" name="id" value={id} />}
@@ -503,8 +557,19 @@ export function ShotlistEditor({
         )}
         {pendingChoice?.type === "title" && (
           <TitleDialog
-            leaving={!!pendingChoice.proceed}
-            onSave={(newTitle) => saveWithTitle(newTitle, pendingChoice.proceed)}
+            description={`A shotlist needs a title before it can be saved${
+              pendingChoice.then?.type === "leave" ? ", then you'll continue." : pendingChoice.then?.type === "download" ? ", then it will download." : "."
+            }`}
+            submitLabel={pendingChoice.then?.type === "leave" ? "Save and leave" : pendingChoice.then?.type === "download" ? "Save and download" : "Save"}
+            onSubmit={(newTitle) => saveWithTitle(newTitle, pendingChoice.then)}
+            onCancel={closeDialog}
+          />
+        )}
+        {pendingChoice?.type === "downloadTitle" && (
+          <TitleDialog
+            description="The shotlist needs a title before it can be downloaded. The file is named after it."
+            submitLabel="Download"
+            onSubmit={downloadWithTitle}
             onCancel={closeDialog}
           />
         )}
@@ -519,7 +584,7 @@ export function ShotlistEditor({
               autoFocus
               title="Save and leave"
               detail={title.trim() ? "Saves the shotlist, then continues" : "Asks for a title, saves the shotlist, then continues"}
-              onClick={() => saveAndLeave(pendingChoice.proceed)}
+              onClick={() => saveThen({ type: "leave", proceed: pendingChoice.proceed })}
             />
             <ChoiceCard
               title="Leave without saving"
@@ -528,6 +593,29 @@ export function ShotlistEditor({
                 closeDialog();
                 pendingChoice.proceed();
               }}
+            />
+          </ChoiceDialog>
+        )}
+        {pendingChoice?.type === "download" && (
+          <ChoiceDialog
+            title="Save before downloading?"
+            body="This shotlist has changes that haven't been saved."
+            onCancel={closeDialog}
+          >
+            <ChoiceCard
+              autoFocus
+              title="Save and download"
+              detail={title.trim() ? "Saves the shotlist, then downloads it" : "Asks for a title, saves the shotlist, then downloads it"}
+              onClick={() => saveThen({ type: "download" })}
+            />
+            <ChoiceCard
+              title="Download without saving"
+              detail={
+                title.trim()
+                  ? "The file includes your unsaved changes; the shotlist stays unsaved"
+                  : "Asks for a title, then downloads; the shotlist stays unsaved"
+              }
+              onClick={downloadAsIs}
             />
           </ChoiceDialog>
         )}
@@ -689,19 +777,29 @@ const range = (from: string, to: string) => (from === to ? from : `${from}–${t
 const plural = (from: string, to: string) => (from === to ? "scene" : "scenes");
 const renumbers = (r: RunShift) => `Renumbers ${plural(r.from, r.to)} ${range(r.from, r.to)} to ${range(r.newFrom, r.newTo)}`;
 
-/** Asks for a title when saving a shotlist that doesn't have one. */
-function TitleDialog({ leaving, onSave, onCancel }: { leaving: boolean; onSave: (title: string) => void; onCancel: () => void }) {
+/** Asks for a title when saving (or downloading) a shotlist that doesn't have one. */
+function TitleDialog({
+  description,
+  submitLabel,
+  onSubmit,
+  onCancel,
+}: {
+  description: string;
+  submitLabel: string;
+  onSubmit: (title: string) => void;
+  onCancel: () => void;
+}) {
   const [value, setValue] = useState("");
   return (
     <form
       className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        if (value.trim()) onSave(value.trim());
+        if (value.trim()) onSubmit(value.trim());
       }}
     >
       <h2 className="text-lg font-semibold">Name your shotlist</h2>
-      <p className="text-sm text-muted">A shotlist needs a title before it can be saved{leaving ? ", then you'll continue." : "."}</p>
+      <p className="text-sm text-muted">{description}</p>
       <div>
         <label htmlFor="title-prompt" className="label">Title</label>
         <input
@@ -716,7 +814,7 @@ function TitleDialog({ leaving, onSave, onCancel }: { leaving: boolean; onSave: 
       </div>
       <div className="flex justify-end gap-2">
         <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
-        <button type="submit" className="btn-primary" disabled={!value.trim()}>{leaving ? "Save and leave" : "Save"}</button>
+        <button type="submit" className="btn-primary" disabled={!value.trim()}>{submitLabel}</button>
       </div>
     </form>
   );

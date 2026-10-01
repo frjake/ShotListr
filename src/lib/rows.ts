@@ -225,3 +225,17 @@ export function renumberAfterDelete(rows: readonly Numbered[], index: number): D
   const untilGap = describeRun(runRange(others, after), -1);
   return { untilGap: untilGap && untilGap.to !== all.to ? untilGap : null, all };
 }
+
+// ---------- Export ----------
+
+/** One header for both row kinds: scene and shot column names joined with a slash. */
+export const EXPORT_HEADERS = ["Scene #/Shot #", "Int./Ext./Subject", "Location/Framing", "Time/Angle", "Characters/Description"];
+
+/** The sheet as plain text, header first: each row's number (12, 12A…) then its kind's four fields. */
+export function exportTable(rows: readonly RowData[]): string[][] {
+  const labels = rowLabels(rows);
+  return [
+    EXPORT_HEADERS,
+    ...rows.map((row, i) => [labels[i], ...fieldsFor(row.kind).filter((f) => f !== "sceneNumber").map((f) => row[f])]),
+  ];
+}
