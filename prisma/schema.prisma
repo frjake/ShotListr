@@ -49,18 +49,20 @@ model Shotlist {
 }
 
 // One spreadsheet row. `kind` is "SCENE" or "SHOT" (src/lib/constants.ts). Scene rows use
-// intExt/location/time/characters, shot rows subject/framing/angle/description; the others stay "".
-// Scene/shot numbers are derived from row order (src/lib/rows.ts), never stored.
+// sceneNumber/intExt/location/time/characters, shot rows subject/framing/angle/description; the
+// others stay "". Scene numbers ("12", "12.1", "12.0.1" — see src/lib/sceneNumbers.ts) are unique
+// and increase with position; shot numbers (12A, 12B) are derived, never stored.
 model ShotlistRow {
   id         String @id @default(cuid())
   shotlistId String
   position   Int
   kind       String
 
-  intExt     String @default("")
-  location   String @default("")
-  time       String @default("")
-  characters String @default("")
+  sceneNumber String @default("")
+  intExt      String @default("")
+  location    String @default("")
+  time        String @default("")
+  characters  String @default("")
 
   subject     String @default("")
   framing     String @default("")

@@ -12,7 +12,7 @@ export default async function NewShotlist() {
     <ShotlistEditor
       heading="New Shotlist"
       initialTitle=""
-      initialRows={[emptyRow(ROW_KIND.SCENE), emptyRow(ROW_KIND.SHOT)]}
+      initialRows={[{ ...emptyRow(ROW_KIND.SCENE), sceneNumber: "1" }, emptyRow(ROW_KIND.SHOT)]}
     />
   );
 }

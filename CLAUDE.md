@@ -30,13 +30,16 @@ See `README.md` for setup. Dev server runs on **port 8000**.
 src/lib/db.ts         Prisma client singleton (adapter wired here)
 src/lib/auth.ts       server-only: bcrypt, DB sessions, cookie `shotlistr_session`, getCurrentUser() (React cache), requireUser()
 src/lib/constants.ts  SESSION_COOKIE, SESSION_TTL_MS (30 days), ROW_KIND, cell suggestion lists (INT_EXT/TIME/FRAMING/ANGLE_OPTIONS)
-src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emptyRow, cleanRow, rowLabels (1, 1A, 1B, 2…)
+src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emptyRow, cleanRow, rowLabels (12, 12A, 12.1A…)
                       reorder/delete: blockEnd, dropTargets, moveRows, stepTarget, deleteRows
+                      scene numbers: planSceneAt, shiftScenes, renumberScene, renumberAfterDelete
+src/lib/sceneNumbers.ts PURE: parse/format/compare scene numbers, nextSceneNumber, subsceneBetween, runRange, siblingRange, shiftRange
 src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, userId), toRowRecords
 src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist)
 src/components/       Nav (shows Log in / Sign up, or @username + Log out),
-                      ShotlistEditor (spreadsheet: two sticky header rows, hover InsertZones, drag grip + delete per
-                      row, DeleteSceneDialog, Save form)
+                      ShotlistEditor (spreadsheet: two sticky header rows, hover InsertZones, drag grip + editable
+                      scene number + delete per row, SceneNumberDialog + DeleteSceneDialog (both built from
+                      ChoiceDialog/ChoiceCard: one card per outcome, Back/Cancel), Save form)
 ```
 
 Routes: `/`, `/login`, `/register`, `/shotlists`, `/shotlists/new`, `/shotlists/[shotlistId]` (all three require login;
@@ -52,8 +55,26 @@ the last 404s unless you own it).
   for unknown user and wrong password.
 - **Shotlist rows are one flat ordered list** (`ShotlistRow.position`) of SCENE and SHOT rows, so a
   scene can be inserted between shots. Each row has every column; only its kind's fields are kept
-  (`cleanRow`, applied on save). Scene/shot numbers are **derived** by `rowLabels` from order —
-  never stored. Shots above the first scene get letters only.
+  (`cleanRow`, applied on save). Shot numbers (12A, 12B) are derived by `rowLabels`; shots above
+  the first scene get letters only.
+- **Scene numbers are stored** (`ShotlistRow.sceneNumber`) and must be unique and increasing down the
+  sheet (the client keeps that true; `shotlistSchema` rejects anything else). Format: `12`, `12.1`,
+  `12.0.1` — dot-separated, last part non-zero; a number sorts before its subscenes. All number
+  rules live in `sceneNumbers.ts`/`rows.ts` and are unit-tested:
+  - Insert/drag with no scene below: the next whole number after the scene above (12.1 → 13), no
+    question. With a scene below, `SceneNumberDialog` **always** offers three options
+    (`planSceneAt`): a subscene (the scene above's next subscene if it fits, 12.1 → 12.2, else
+    `subsceneBetween`); or `number` — the next whole number if it fits before the scene below, else
+    the scene below's number — renumbering either **until the gap** (`runRange`; nothing moves if
+    the number is free — then the option is just "Make it scene N") or **all later siblings**
+    (`siblingRange`). When both shifts are identical (no gap) the dialog merges them. Shifts never cross parents (inside 12 only
+    12.x move) and subscenes move with their scene (`shiftRange`).
+  - Typing a number (Enter/blur; Escape reverts) refuses invalid or existing numbers with an inline
+    error, otherwise moves the scene and its shots to where the number belongs.
+  - Delete: if any later sibling exists (and no subscene keeps the number in use), the delete
+    dialog also asks: leave a gap, renumber down until the gap, or renumber all later siblings
+    (`renumberAfterDelete`). Until-the-gap is dropped when it would do nothing (next number free)
+    or match "all" (no gap). Dialogs only ever show options with different outcomes.
 - **Saving** sends the whole sheet as JSON in a hidden input; `saveShotlist` creates (then
   redirects to `/shotlists/[id]`) or replaces title + all rows in one transaction. It returns an
   error instead of redirecting when signed out, so unsaved edits survive. Only the Save button is
@@ -63,9 +84,12 @@ the last 404s unless you own it).
   pointer capture on the grip (no DnD library); the target is the nearest allowed boundary to the
   pointer, shown on that boundary's InsertZone line. ↑/↓ on a focused grip steps by `stepTarget`;
   Escape cancels a drag. Keep all ordering rules in `rows.ts` so they stay unit-tested.
-- **Deleting** a shot or an empty scene is immediate; a scene with shots opens a `<dialog>` (delete
-  scene and its shots / scene only — kept shots join the scene above / Cancel). Keyboard deletes move
-  focus to a neighbouring grip.
+- **Deleting** a shot or an empty scene is immediate; otherwise the `<dialog>` asks up to two
+  questions in turn, as cards: its shots (delete / keep — kept shots join the scene above), then
+  the numbers after it (see Scene numbers above). With one question, one click deletes.
+  Keyboard deletes move focus to a neighbouring grip. Dialog choices clear `pendingChoice` in the
+  same update as the change; `onClose` ignores late close events (it's queued, and can arrive after
+  the next dialog opened).
 - **InsertZone pop-ups must stay shorter than a row.** Each zone is a 10px strip on a row boundary;
   a hovered zone is raised above its neighbours, so a pop-up taller than a row would cover the next
   boundary and keep the wrong zone open.

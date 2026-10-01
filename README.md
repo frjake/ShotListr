@@ -47,12 +47,20 @@ email creates a 30-day session stored in the database and referenced by an HttpO
 
 "Create new shotlist +" opens a spreadsheet that starts with one empty scene row and one shot
 row. Hover over any line between rows (or above the first / below the last) to insert a scene or
-a shot there. Scenes are numbered 1, 2, 3 and shots 1A, 1B, 2A… automatically. Int./Ext., Time,
+a shot there. A scene added at the end takes the next whole number. Anywhere else you choose:
+make it a subscene (12.1, 12.2, 12.1.1, 12.0.1…), or give it the next number and renumber the
+scenes after it either up to the first gap or all the way to the end.
+Shots are lettered within their scene: 12A, 12B, 12.1A. Click a scene number to type a different
+one — it's refused if another scene has it, otherwise the scene (with its shots) moves into number
+order. Int./Ext., Time,
 Framing and Angle suggest standard values but accept anything. Save stores it to your account.
 
 Hover a row to reveal its ⠿ grip and × button. Drag the grip to move the row — a scene moves
 together with its shots and drops between scenes — or focus the grip and press ↑/↓. Deleting a
-scene that has shots asks whether to delete them too or keep them under the scene above.
+scene that has shots asks whether to delete them too or keep them under the scene above, and if
+scenes come after it, whether to leave a gap or renumber them down — up to the first gap or all
+of them. Only choices that would do something different are shown. Dragging a scene
+renumbers it for where it lands, the same way as inserting.
 
 ## Scripts
 
