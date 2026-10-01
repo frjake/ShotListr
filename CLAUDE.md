@@ -31,10 +31,12 @@ src/lib/db.ts         Prisma client singleton (adapter wired here)
 src/lib/auth.ts       server-only: bcrypt, DB sessions, cookie `shotlistr_session`, getCurrentUser() (React cache), requireUser()
 src/lib/constants.ts  SESSION_COOKIE, SESSION_TTL_MS (30 days), ROW_KIND, cell suggestion lists (INT_EXT/TIME/FRAMING/ANGLE_OPTIONS)
 src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emptyRow, cleanRow, rowLabels (1, 1A, 1B, 2…)
+                      reorder/delete: blockEnd, dropTargets, moveRows, stepTarget, deleteRows
 src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, userId), toRowRecords
 src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist)
 src/components/       Nav (shows Log in / Sign up, or @username + Log out),
-                      ShotlistEditor (spreadsheet: two sticky header rows, hover InsertZones, Save form)
+                      ShotlistEditor (spreadsheet: two sticky header rows, hover InsertZones, drag grip + delete per
+                      row, DeleteSceneDialog, Save form)
 ```
 
 Routes: `/`, `/login`, `/register`, `/shotlists`, `/shotlists/new`, `/shotlists/[shotlistId]` (all three require login;
@@ -56,6 +58,14 @@ the last 404s unless you own it).
   redirects to `/shotlists/[id]`) or replaces title + all rows in one transaction. It returns an
   error instead of redirecting when signed out, so unsaved edits survive. Only the Save button is
   inside the `<form>`, so Enter in a cell doesn't submit.
+- **Reordering moves blocks.** A scene drags with its shots and can only land between scenes
+  (`dropTargets`), so no other scene is split; a shot can land anywhere. The drag is hand-rolled with
+  pointer capture on the grip (no DnD library); the target is the nearest allowed boundary to the
+  pointer, shown on that boundary's InsertZone line. ↑/↓ on a focused grip steps by `stepTarget`;
+  Escape cancels a drag. Keep all ordering rules in `rows.ts` so they stay unit-tested.
+- **Deleting** a shot or an empty scene is immediate; a scene with shots opens a `<dialog>` (delete
+  scene and its shots / scene only — kept shots join the scene above / Cancel). Keyboard deletes move
+  focus to a neighbouring grip.
 - **InsertZone pop-ups must stay shorter than a row.** Each zone is a 10px strip on a row boundary;
   a hovered zone is raised above its neighbours, so a pop-up taller than a row would cover the next
   boundary and keep the wrong zone open.

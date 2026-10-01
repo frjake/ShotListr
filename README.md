@@ -50,6 +50,10 @@ row. Hover over any line between rows (or above the first / below the last) to i
 a shot there. Scenes are numbered 1, 2, 3 and shots 1A, 1B, 2A… automatically. Int./Ext., Time,
 Framing and Angle suggest standard values but accept anything. Save stores it to your account.
 
+Hover a row to reveal its ⠿ grip and × button. Drag the grip to move the row — a scene moves
+together with its shots and drops between scenes — or focus the grip and press ↑/↓. Deleting a
+scene that has shots asks whether to delete them too or keep them under the scene above.
+
 ## Scripts
 
 | Command | What it does |

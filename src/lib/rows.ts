@@ -53,3 +53,49 @@ export function rowLabels(kinds: readonly RowKind[]): string[] {
     return `${scene || ""}${shotLetters(shot)}`;
   });
 }
+
+// ---------- Reordering & deleting ----------
+// A "block" is what moves together: a scene plus the shots under it, or a single shot.
+// Boundaries are numbered 0..n: boundary b sits just above row b (n = below the last row).
+
+/** End (exclusive) of the block starting at `index`. */
+export function blockEnd(kinds: readonly RowKind[], index: number): number {
+  if (kinds[index] !== ROW_KIND.SCENE) return index + 1;
+  let end = index + 1;
+  while (end < kinds.length && kinds[end] !== ROW_KIND.SCENE) end += 1;
+  return end;
+}
+
+/**
+ * Boundaries where the block starting at `from` may be dropped. A shot can go anywhere; a scene
+ * block only between scenes (above a scene or at the very end), so no other scene is split.
+ * Includes the block's own top/bottom boundaries (dropping there is a no-op).
+ */
+export function dropTargets(kinds: readonly RowKind[], from: number): number[] {
+  const all = Array.from({ length: kinds.length + 1 }, (_, b) => b);
+  if (kinds[from] !== ROW_KIND.SCENE) return all;
+  const end = blockEnd(kinds, from);
+  return all.filter((b) => (b === kinds.length || kinds[b] === ROW_KIND.SCENE) && (b <= from || b >= end));
+}
+
+/** Moves rows [from, from + count) so they sit at boundary `to` (numbered before the move). */
+export function moveRows<T>(rows: readonly T[], from: number, count: number, to: number): T[] {
+  if (to >= from && to <= from + count) return [...rows];
+  const moving = rows.slice(from, from + count);
+  const rest = [...rows.slice(0, from), ...rows.slice(from + count)];
+  const at = to > from ? to - count : to;
+  return [...rest.slice(0, at), ...moving, ...rest.slice(at)];
+}
+
+/** Boundary one step up (-1) or down (1) for the block at `from`, or null at the edge. */
+export function stepTarget(kinds: readonly RowKind[], from: number, dir: -1 | 1): number | null {
+  const end = blockEnd(kinds, from);
+  const targets = dropTargets(kinds, from);
+  const next = dir < 0 ? targets.filter((b) => b < from).at(-1) : targets.find((b) => b > end);
+  return next ?? null;
+}
+
+/** Removes rows [index, index + count). */
+export function deleteRows<T>(rows: readonly T[], index: number, count: number): T[] {
+  return [...rows.slice(0, index), ...rows.slice(index + count)];
+}
