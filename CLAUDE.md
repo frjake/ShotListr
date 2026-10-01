@@ -35,14 +35,19 @@ src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emp
                       scene numbers: planSceneAt, shiftScenes, renumberScene, renumberAfterDelete
 src/lib/sceneNumbers.ts PURE: parse/format/compare scene numbers, nextSceneNumber, subsceneBetween, runRange, siblingRange, shiftRange
 src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, userId), toRowRecords
-src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist)
-src/components/       Nav (shows Log in / Sign up, or @username + Log out),
+src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist)
+src/components/       Nav (GuardedLinks; Log in / Sign up, or @username + LogoutButton),
+                      NavigationGuard (provider in the root layout, useNavigationGuard, GuardedLink, LogoutButton),
+                      LocalTime (date/time in the viewer's time zone),
+                      ChoiceDialog/ChoiceCard (the editor's pop-ups: one card per outcome, Back/Cancel),
+src/app/shotlists/ShotlistCards.tsx  My Shotlists grid + delete confirmation (Cancel / Delete buttons; deleteShotlist in a transition)
                       ShotlistEditor (spreadsheet: two sticky header rows, hover InsertZones, drag grip + editable
                       scene number + delete per row, SceneNumberDialog + DeleteSceneDialog (both built from
-                      ChoiceDialog/ChoiceCard: one card per outcome, Back/Cancel), Save form)
+                      ChoiceDialog/ChoiceCard), TitleDialog, leave dialog, Save form)
 ```
 
-Routes: `/`, `/login`, `/register`, `/shotlists`, `/shotlists/new`, `/shotlists/[shotlistId]` (all three require login;
+Routes: `/`, `/login`, `/register`, `/shotlists` (cards of your shotlists, most recently saved first —
+`updatedAt` changes only on save — each with a delete button that confirms first), `/shotlists/new`, `/shotlists/[shotlistId]` (all three require login;
 the last 404s unless you own it).
 
 ## Conventions
@@ -75,10 +80,21 @@ the last 404s unless you own it).
     dialog also asks: leave a gap, renumber down until the gap, or renumber all later siblings
     (`renumberAfterDelete`). Until-the-gap is dropped when it would do nothing (next number free)
     or match "all" (no gap). Dialogs only ever show options with different outcomes.
-- **Saving** sends the whole sheet as JSON in a hidden input; `saveShotlist` creates (then
-  redirects to `/shotlists/[id]`) or replaces title + all rows in one transaction. It returns an
-  error instead of redirecting when signed out, so unsaved edits survive. Only the Save button is
-  inside the `<form>`, so Enter in a cell doesn't submit.
+- **Saving** sends the whole sheet as JSON in a hidden input; `saveShotlist` creates or replaces
+  title + all rows in one transaction and returns `{ savedAt, id }` — it never redirects. The
+  editor's `useActionState` wrapper then either runs a pending "leave" (`leaveAfterSave`) or, for a
+  new shotlist, `router.replace`s to `/shotlists/[id]`. Errors (incl. signed out) come back as
+  `{ error }`, so unsaved edits survive. Only the Save button is inside the `<form>`, so Enter in a
+  cell doesn't submit.
+- **Titles are required.** Save with a blank title opens `TitleDialog` instead (the form's
+  `onSubmit` prevents the action); `shotlistSchema` also rejects blank titles.
+- **Unsaved changes** = the current title + rows JSON differs from the last saved snapshot
+  (`snapshotOf`; the initial props, then what the last successful save sent). While unsaved, the
+  editor registers a guard via `useNavigationGuard`: `GuardedLink` (Link `onNavigate`) and
+  `LogoutButton` hand it a `proceed` callback, and the leave dialog offers Save and leave / Leave
+  without saving / Stay. The tab also gets a `beforeunload` warning (browser's own prompt). Plain
+  `<Link>`s and browser back/forward are **not** guarded — use `GuardedLink` for links that can be
+  clicked from the editor.
 - **Reordering moves blocks.** A scene drags with its shots and can only land between scenes
   (`dropTargets`), so no other scene is split; a shot can land anywhere. The drag is hand-rolled with
   pointer capture on the grip (no DnD library); the target is the nearest allowed boundary to the

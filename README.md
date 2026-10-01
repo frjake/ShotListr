@@ -45,6 +45,11 @@ email creates a 30-day session stored in the database and referenced by an HttpO
 
 ## Shotlists
 
+"My Shotlists" lists your saved shotlists as cards — title and when it was last saved — most
+recently saved first; click one to open it, or its × to delete it (you're asked to confirm). A shotlist needs a title before it can be saved (you're
+asked for one if it's blank). Leaving a shotlist with unsaved changes through the nav or Log out
+asks whether to save first; closing or reloading the tab shows the browser's own warning.
+
 "Create new shotlist +" opens a spreadsheet that starts with one empty scene row and one shot
 row. To insert a scene or shot, hover the left end of any line between rows (or above the first /
 below the last), left of the scene numbers; the Insert Scene / Insert Shot pop-up appears beside

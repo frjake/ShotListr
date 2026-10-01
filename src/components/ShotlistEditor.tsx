@@ -1,7 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { saveShotlist } from "@/app/actions/shotlists";
+import { ChoiceCard, ChoiceDialog } from "@/components/ChoiceDialog";
+import { useNavigationGuard } from "@/components/NavigationGuard";
 import {
   ANGLE_OPTIONS,
   FRAMING_OPTIONS,
@@ -65,7 +69,17 @@ type FocusTarget = { key: string; part: "grip" | "number" } | "empty-sheet";
 type Pending =
   | { type: "delete"; key: string; viaKeyboard: boolean }
   | { type: "insert"; boundary: number; placement: Extract<ScenePlacement, { type: "choose" }> }
-  | { type: "move"; from: number; to: number; placement: Extract<ScenePlacement, { type: "choose" }>; viaKeyboard: boolean };
+  | { type: "move"; from: number; to: number; placement: Extract<ScenePlacement, { type: "choose" }>; viaKeyboard: boolean }
+  // Saving without a title asks for one first; `proceed` is where to go afterwards, if leaving.
+  | { type: "title"; proceed: (() => void) | null }
+  // Leaving with unsaved changes: save first, leave anyway, or stay.
+  | { type: "leave"; proceed: () => void };
+
+/** The editor's save state: the server's answer plus what was saved, to tell when there are unsaved changes. */
+type EditorSaveState = { error?: string; savedAt?: number; snapshot?: string } | undefined;
+
+/** Everything a save sends, as one comparable string. */
+const snapshotOf = (title: string, rowsJson: string) => `${title}\u0000${rowsJson}`;
 
 export function ShotlistEditor({
   id,
@@ -89,7 +103,22 @@ export function ShotlistEditor({
   // Which boundary's Insert pop-up is open. Only one at a time: showing one closes any other at once.
   const [openZone, setOpenZone] = useState<number | null>(null);
   const zoneCloseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const [state, action, pending] = useActionState(saveShotlist, undefined);
+  const router = useRouter();
+  const { setGuard } = useNavigationGuard();
+  const saveFormEl = useRef<HTMLFormElement>(null);
+  // Where to go once the save in flight succeeds ("Save and leave").
+  const leaveAfterSave = useRef<(() => void) | null>(null);
+  const [initialSnapshot] = useState(() => snapshotOf(initialTitle, JSON.stringify(initialRows.map(cleanRow))));
+
+  const [state, action, pending] = useActionState(async (prev: EditorSaveState, formData: FormData): Promise<EditorSaveState> => {
+    const leave = leaveAfterSave.current;
+    leaveAfterSave.current = null;
+    const result = await saveShotlist(undefined, formData);
+    if (!result?.savedAt || !result.id) return { snapshot: prev?.snapshot, error: result?.error ?? "Couldn't save the shotlist" };
+    if (leave) leave();
+    else if (!id) router.replace(`/shotlists/${result.id}`); // a new shotlist moves to its own page
+    return { savedAt: result.savedAt, snapshot: snapshotOf(String(formData.get("title")), String(formData.get("rows"))) };
+  }, undefined);
 
   const rowEls = useRef(new Map<string, HTMLDivElement>());
   const gripEls = useRef(new Map<string, HTMLButtonElement>());
@@ -113,7 +142,7 @@ export function ShotlistEditor({
   }, [rows]);
 
   useEffect(() => {
-    if (pendingChoice) dialogEl.current?.showModal();
+    if (pendingChoice && !dialogEl.current?.open) dialogEl.current?.showModal();
   }, [pendingChoice]);
 
   useEffect(() => {
@@ -287,6 +316,39 @@ export function ShotlistEditor({
   }
 
   const payload = JSON.stringify(rows.map(cleanRow));
+  const unsaved = snapshotOf(title, payload) !== (state?.snapshot ?? initialSnapshot);
+
+  // While there are unsaved changes, in-app navigation asks first (nav links, Log out) and the
+  // browser warns before closing or reloading the tab (it doesn't allow a custom prompt there).
+  const requestLeave = useCallback((proceed: () => void) => setPendingChoice({ type: "leave", proceed }), []);
+  useEffect(() => {
+    if (!unsaved) return;
+    setGuard(requestLeave);
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      setGuard(null);
+      window.removeEventListener("beforeunload", warn);
+    };
+  }, [unsaved, setGuard, requestLeave]);
+
+  /** Saves with `newTitle` (from the title prompt), then goes to `proceed` if leaving. */
+  function saveWithTitle(newTitle: string, proceed: (() => void) | null) {
+    flushSync(() => {
+      setTitle(newTitle);
+      setPendingChoice(null);
+    });
+    dialogEl.current?.close();
+    leaveAfterSave.current = proceed;
+    saveFormEl.current?.requestSubmit();
+  }
+
+  function saveAndLeave(proceed: () => void) {
+    if (!title.trim()) return setPendingChoice({ type: "title", proceed });
+    closeDialog();
+    leaveAfterSave.current = proceed;
+    saveFormEl.current?.requestSubmit();
+  }
   // Clear the choice in the same update as the change it made, so the dialog never renders
   // against rows it no longer matches (the <dialog> close event arrives later).
   const closeDialog = () => {
@@ -307,7 +369,16 @@ export function ShotlistEditor({
             )
           )}
           {/* Only the button is inside the form, so Enter in a cell doesn't submit. */}
-          <form action={action}>
+          <form
+            ref={saveFormEl}
+            action={action}
+            onSubmit={(e) => {
+              // No title yet: ask for one instead of saving (a prevented submit doesn't run the action).
+              if (title.trim()) return;
+              e.preventDefault();
+              setPendingChoice({ type: "title", proceed: null });
+            }}
+          >
             {id && <input type="hidden" name="id" value={id} />}
             <input type="hidden" name="title" value={title} />
             <input type="hidden" name="rows" value={payload} />
@@ -323,7 +394,7 @@ export function ShotlistEditor({
         <input
           id="shotlist-title"
           className="input mt-1 max-w-md"
-          placeholder="Untitled shotlist"
+          placeholder="Add a title"
           maxLength={200}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -430,6 +501,36 @@ export function ShotlistEditor({
             }}
             onCancel={closeDialog}
           />
+        )}
+        {pendingChoice?.type === "title" && (
+          <TitleDialog
+            leaving={!!pendingChoice.proceed}
+            onSave={(newTitle) => saveWithTitle(newTitle, pendingChoice.proceed)}
+            onCancel={closeDialog}
+          />
+        )}
+        {pendingChoice?.type === "leave" && (
+          <ChoiceDialog
+            title="Save your changes?"
+            body="This shotlist has changes that haven't been saved."
+            cancelLabel="Stay on this page"
+            onCancel={closeDialog}
+          >
+            <ChoiceCard
+              autoFocus
+              title="Save and leave"
+              detail={title.trim() ? "Saves the shotlist, then continues" : "Asks for a title, saves the shotlist, then continues"}
+              onClick={() => saveAndLeave(pendingChoice.proceed)}
+            />
+            <ChoiceCard
+              title="Leave without saving"
+              detail="Changes since the last save are lost"
+              onClick={() => {
+                closeDialog();
+                pendingChoice.proceed();
+              }}
+            />
+          </ChoiceDialog>
         )}
       </dialog>
 
@@ -586,45 +687,36 @@ const range = (from: string, to: string) => (from === to ? from : `${from}–${t
 const plural = (from: string, to: string) => (from === to ? "scene" : "scenes");
 const renumbers = (r: RunShift) => `Renumbers ${plural(r.from, r.to)} ${range(r.from, r.to)} to ${range(r.newFrom, r.newTo)}`;
 
-/** Layout shared by the scene pop-ups: a question, one card per possible outcome, Back/Cancel. */
-function ChoiceDialog({
-  title,
-  body,
-  children,
-  onBack,
-  onCancel,
-}: {
-  title: string;
-  body: string;
-  children: React.ReactNode;
-  onBack?: () => void;
-  onCancel: () => void;
-}) {
+/** Asks for a title when saving a shotlist that doesn't have one. */
+function TitleDialog({ leaving, onSave, onCancel }: { leaving: boolean; onSave: (title: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState("");
   return (
-    <div className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="text-sm text-muted">{body}</p>
-      <div className="flex flex-col gap-2">{children}</div>
-      <div className={`flex ${onBack ? "justify-between" : "justify-end"}`}>
-        {onBack && <button type="button" className="btn-ghost" onClick={onBack}>Back</button>}
-        <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
-      </div>
-    </div>
-  );
-}
-
-/** One outcome in a ChoiceDialog; clicking it applies that outcome (or moves to the next question). */
-function ChoiceCard({ title, detail, autoFocus, onClick }: { title: string; detail: string; autoFocus?: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      autoFocus={autoFocus}
-      className="flex flex-col items-start rounded-md border border-line px-4 py-2.5 text-left hover:bg-scene focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/70"
-      onClick={onClick}
+    <form
+      className="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) onSave(value.trim());
+      }}
     >
-      <span className="font-medium">{title}</span>
-      <span className="text-xs text-muted">{detail}</span>
-    </button>
+      <h2 className="text-lg font-semibold">Name your shotlist</h2>
+      <p className="text-sm text-muted">A shotlist needs a title before it can be saved{leaving ? ", then you'll continue." : "."}</p>
+      <div>
+        <label htmlFor="title-prompt" className="label">Title</label>
+        <input
+          id="title-prompt"
+          autoFocus
+          className="input mt-1"
+          placeholder="e.g. Kitchen scene"
+          maxLength={200}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        <button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="btn-primary" disabled={!value.trim()}>{leaving ? "Save and leave" : "Save"}</button>
+      </div>
+    </form>
   );
 }
 

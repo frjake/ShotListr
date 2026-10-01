@@ -6,8 +6,6 @@ import { prisma } from "./db";
 import { cleanRow, ROW_FIELDS, type RowData, type RowField } from "./rows";
 import { compareSceneNumbers, parseSceneNumber, type SceneNumber } from "./sceneNumbers";
 
-export const DEFAULT_TITLE = "Untitled shotlist";
-
 const cell = z.string().trim().max(1000, "A cell can hold at most 1000 characters");
 
 const rowSchema = z.object({
@@ -19,8 +17,8 @@ export const shotlistSchema = z.object({
   title: z
     .string()
     .trim()
-    .max(200, "Title must be at most 200 characters")
-    .transform((s) => s || DEFAULT_TITLE),
+    .min(1, "Add a title before saving")
+    .max(200, "Title must be at most 200 characters"),
   rows: z
     .array(rowSchema)
     .max(2000, "A shotlist can have at most 2000 rows")
