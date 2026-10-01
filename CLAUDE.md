@@ -90,9 +90,12 @@ the last 404s unless you own it).
   Keyboard deletes move focus to a neighbouring grip. Dialog choices clear `pendingChoice` in the
   same update as the change; `onClose` ignores late close events (it's queued, and can arrive after
   the next dialog opened).
-- **InsertZone pop-ups must stay shorter than a row.** Each zone is a 10px strip on a row boundary;
-  a hovered zone is raised above its neighbours, so a pop-up taller than a row would cover the next
-  boundary and keep the wrong zone open.
+- **InsertZone** (one per row boundary): only a small strip at the left end of the line (the grip
+  column, left of the scene numbers) triggers it. The pop-up is `position: fixed`, placed just left
+  of the sheet (`[data-sheet]`) and clamped to 8px from the viewport edge, so the scroll container
+  can't clip it. The open zone lives in the editor (`openZone`), so only one pop-up shows at a
+  time — opening one closes the other at once; closing waits 150ms so the pointer can cross the
+  gap. Its buttons stay in the DOM (invisible) so Tab reaches them in row order and opens it.
 - Server components can be async and query Prisma directly; client components (`'use client'`)
   call actions via `<form action>` / `useActionState`.
 

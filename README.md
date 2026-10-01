@@ -46,8 +46,9 @@ email creates a 30-day session stored in the database and referenced by an HttpO
 ## Shotlists
 
 "Create new shotlist +" opens a spreadsheet that starts with one empty scene row and one shot
-row. Hover over any line between rows (or above the first / below the last) to insert a scene or
-a shot there. A scene added at the end takes the next whole number. Anywhere else you choose:
+row. To insert a scene or shot, hover the left end of any line between rows (or above the first /
+below the last), left of the scene numbers; the Insert Scene / Insert Shot pop-up appears beside
+the table. A scene added at the end takes the next whole number. Anywhere else you choose:
 make it a subscene (12.1, 12.2, 12.1.1, 12.0.1…), or give it the next number and renumber the
 scenes after it either up to the first gap or all the way to the end.
 Shots are lettered within their scene: 12A, 12B, 12.1A. Click a scene number to type a different

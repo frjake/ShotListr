@@ -86,6 +86,9 @@ export function ShotlistEditor({
   const [pendingChoice, setPendingChoice] = useState<Pending | null>(null);
   const [numberError, setNumberError] = useState<{ key: string; message: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  // Which boundary's Insert pop-up is open. Only one at a time: showing one closes any other at once.
+  const [openZone, setOpenZone] = useState<number | null>(null);
+  const zoneCloseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [state, action, pending] = useActionState(saveShotlist, undefined);
 
   const rowEls = useRef(new Map<string, HTMLDivElement>());
@@ -119,6 +122,8 @@ export function ShotlistEditor({
     return () => clearTimeout(timer);
   }, [numberError]);
 
+  useEffect(() => () => clearTimeout(zoneCloseTimer.current), []);
+
   useEffect(() => {
     if (!drag) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setDrag(null);
@@ -127,6 +132,24 @@ export function ShotlistEditor({
   }, [drag]);
 
   // ----- Inserting -----
+
+  function showZone(boundary: number) {
+    clearTimeout(zoneCloseTimer.current);
+    setOpenZone(boundary);
+  }
+
+  /** Closes a pop-up after a short delay, so the pointer can cross from the strip into it. */
+  function hideZoneSoon(boundary: number) {
+    clearTimeout(zoneCloseTimer.current);
+    zoneCloseTimer.current = setTimeout(() => setOpenZone((open) => (open === boundary ? null : open)), 150);
+  }
+
+  function insertFromZone(boundary: number, kind: RowKind) {
+    clearTimeout(zoneCloseTimer.current);
+    setOpenZone(null);
+    insertRow(boundary, kind);
+  }
+
 
   function insertRow(boundary: number, kind: RowKind) {
     if (kind === ROW_KIND.SHOT) return placeNewRow(rows, boundary, emptyRow(kind));
@@ -309,6 +332,7 @@ export function ShotlistEditor({
 
       <div
         ref={scrollEl}
+        data-sheet
         className={`max-h-[calc(100dvh-15rem)] min-h-64 overflow-auto rounded-lg border border-line ${drag ? "cursor-grabbing select-none" : ""}`}
       >
         <div className="min-w-[49rem] pb-12">
@@ -317,7 +341,7 @@ export function ShotlistEditor({
             <HeaderRow className="bg-header text-muted" number="Shot #" columns={SHOT_COLUMNS} />
           </div>
 
-          <InsertZone dragging={!!drag} dropHere={drag?.target === 0} onInsert={(kind) => insertRow(0, kind)} />
+          <InsertZone boundary={0} drag={drag} open={openZone === 0} onShow={showZone} onHide={hideZoneSoon} onInsert={insertFromZone} />
           {rows.map((row, i) => (
             <div key={row.key}>
               <SheetRow
@@ -350,7 +374,14 @@ export function ShotlistEditor({
                 onGripKeyDown={(e) => onGripKeyDown(e, i)}
                 onDelete={(viaKeyboard) => requestDelete(i, viaKeyboard)}
               />
-              <InsertZone dragging={!!drag} dropHere={drag?.target === i + 1} onInsert={(kind) => insertRow(i + 1, kind)} />
+              <InsertZone
+                boundary={i + 1}
+                drag={drag}
+                open={openZone === i + 1}
+                onShow={showZone}
+                onHide={hideZoneSoon}
+                onInsert={insertFromZone}
+              />
             </div>
           ))}
         </div>
@@ -717,41 +748,67 @@ function DeleteSceneDialog({
 }
 
 /**
- * Invisible strip straddling a row boundary. Hovering (or tabbing into) it shows an insertion
- * line and an "Insert Scene / Insert Shot" pop-up centred on it. The pop-up must stay shorter
- * than a row so it never covers the neighbouring boundaries' strips. While a row is being
- * dragged the pop-ups are off and the line marks where the row will land.
+ * A row boundary. Hovering the small strip at its left end (left of the scene numbers), or tabbing
+ * to its buttons, shows an insertion line across the table and an "Insert Scene / Insert Shot"
+ * pop-up just left of the table. The pop-up is `fixed` so the sheet's scroll container doesn't
+ * clip it. Which pop-up is open lives in the editor (one at a time); its short close delay lets
+ * the pointer cross from the strip to the pop-up. While a row
+ * is being dragged the pop-ups are off and the line marks where the row will land.
  */
 function InsertZone({
-  dragging,
-  dropHere,
+  boundary,
+  drag,
+  open,
+  onShow,
+  onHide,
   onInsert,
 }: {
-  dragging: boolean;
-  dropHere: boolean;
-  onInsert: (kind: RowKind) => void;
+  boundary: number;
+  drag: Drag | null;
+  open: boolean;
+  onShow: (boundary: number) => void;
+  onHide: (boundary: number) => void;
+  onInsert: (boundary: number, kind: RowKind) => void;
 }) {
-  const btn = "rounded px-2 py-0.5 text-xs font-medium hover:bg-foreground hover:text-background focus:bg-foreground focus:text-background focus:outline-none";
-  const show = "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100";
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const stripEl = useRef<HTMLDivElement>(null);
+  const popupEl = useRef<HTMLDivElement>(null);
 
-  if (dragging) {
+  function show() {
+    const strip = stripEl.current!.getBoundingClientRect();
+    const sheet = stripEl.current!.closest("[data-sheet]")!.getBoundingClientRect();
+    const width = popupEl.current?.offsetWidth ?? 0;
+    // Right edge just left of the table; on narrow screens, overlap the table rather than go off-screen.
+    setPos({ top: strip.top + strip.height / 2, left: Math.max(8, sheet.left - 6 - width) });
+    onShow(boundary);
+  }
+
+  const hide = () => onHide(boundary);
+
+  if (drag) {
     return (
       <div className="relative h-0">
-        {dropHere && <div className="pointer-events-none absolute inset-x-0 z-10 h-0.5 -translate-y-1/2 bg-foreground" />}
+        {drag.target === boundary && <div className="pointer-events-none absolute inset-x-0 z-10 h-0.5 -translate-y-1/2 bg-foreground" />}
       </div>
     );
   }
 
+  const btn = "rounded px-2 py-1 text-left text-xs font-medium whitespace-nowrap hover:bg-foreground hover:text-background focus:bg-foreground focus:text-background focus:outline-none";
   return (
-    <div className="group relative h-0">
-      <div className="absolute inset-x-0 -top-[5px] z-10 h-[10px] group-hover:z-30 group-focus-within:z-30">
-        <div className={`pointer-events-none absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-foreground ${show}`} />
-        <div
-          className={`pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 gap-1 rounded-md border border-line bg-surface p-0.5 shadow-lg group-hover:pointer-events-auto group-focus-within:pointer-events-auto ${show}`}
-        >
-          <button type="button" className={btn} onClick={() => onInsert(ROW_KIND.SCENE)}>Insert Scene</button>
-          <button type="button" className={btn} onClick={() => onInsert(ROW_KIND.SHOT)}>Insert Shot</button>
-        </div>
+    <div className="relative h-0">
+      <div className={`pointer-events-none absolute inset-x-0 z-10 h-0.5 -translate-y-1/2 bg-foreground ${open ? "" : "opacity-0"}`} />
+      <div ref={stripEl} className="absolute -top-1.5 left-0 z-10 h-3 w-6" onMouseEnter={show} onMouseLeave={hide} />
+      <div
+        ref={popupEl}
+        style={pos}
+        className={`fixed z-40 flex -translate-y-1/2 flex-col gap-0.5 rounded-md border border-line bg-surface p-0.5 shadow-lg ${open ? "" : "pointer-events-none opacity-0"}`}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && hide()}
+      >
+        <button type="button" className={btn} onClick={() => onInsert(boundary, ROW_KIND.SCENE)}>Insert Scene</button>
+        <button type="button" className={btn} onClick={() => onInsert(boundary, ROW_KIND.SHOT)}>Insert Shot</button>
       </div>
     </div>
   );
