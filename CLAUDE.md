@@ -41,6 +41,8 @@ src/components/       Nav (GuardedLinks: Home, New Shotlist, My Shotlists; Log i
                       resetKey — bumped when a GuardedLink targets the current page; /shotlists/new keys its editor
                       on it via NewShotlistEditor so "New Shotlist" from a new shotlist starts over),
                       LocalTime (date/time in the viewer's time zone),
+                      ComboboxInput (cells with suggestions — Int./Ext., Time, Framing, Angle: opening shows every
+                      option, only typing filters; not a native <datalist>, which always filters by the value),
                       ChoiceDialog/ChoiceCard (the editor's pop-ups: one card per outcome, Back/Cancel),
 src/app/shotlists/ShotlistCards.tsx  My Shotlists grid + delete confirmation (Cancel / Delete buttons; deleteShotlist in a transition)
                       ShotlistEditor (spreadsheet: two sticky header rows, hover InsertZones, drag grip + editable

@@ -5,6 +5,7 @@ import { useActionState, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { flushSync } from "react-dom";
 import { saveShotlist } from "@/app/actions/shotlists";
 import { ChoiceCard, ChoiceDialog } from "@/components/ChoiceDialog";
+import { ComboboxInput } from "@/components/ComboboxInput";
 import { useNavigationGuard } from "@/components/NavigationGuard";
 import {
   ANGLE_OPTIONS,
@@ -50,8 +51,6 @@ const SHOT_COLUMNS: Column[] = [
   { field: "angle", label: "Angle", options: ANGLE_OPTIONS },
   { field: "description", label: "Description" },
 ];
-
-const DATALISTS = [...SCENE_COLUMNS, ...SHOT_COLUMNS].filter((c) => c.options);
 
 /** Number column + four data columns, shared by scene rows, shot rows and both header rows. */
 const GRID = "grid grid-cols-[7rem_minmax(7rem,1fr)_minmax(9rem,1.5fr)_minmax(7rem,1fr)_minmax(13rem,2fr)]";
@@ -533,14 +532,6 @@ export function ShotlistEditor({
           </ChoiceDialog>
         )}
       </dialog>
-
-      {DATALISTS.map((c) => (
-        <datalist key={c.field} id={`options-${c.field}`}>
-          {c.options!.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </datalist>
-      ))}
     </div>
   );
 }
@@ -668,15 +659,26 @@ function SheetRow({
       </div>
       {columns.map((c, ci) => (
         <div key={c.field} className={CELL}>
-          <input
-            aria-label={`${noun} ${label} ${c.label}`}
-            className={cellInput}
-            list={c.options ? `options-${c.field}` : undefined}
-            maxLength={1000}
-            autoFocus={autoFocus && ci === 0} // focus the row the user just inserted
-            value={row[c.field]}
-            onChange={(e) => onChange(c.field, e.target.value)}
-          />
+          {c.options ? (
+            <ComboboxInput
+              aria-label={`${noun} ${label} ${c.label}`}
+              className={cellInput}
+              options={c.options}
+              maxLength={1000}
+              autoFocus={autoFocus && ci === 0} // focus the row the user just inserted
+              value={row[c.field]}
+              onChange={(value) => onChange(c.field, value)}
+            />
+          ) : (
+            <input
+              aria-label={`${noun} ${label} ${c.label}`}
+              className={cellInput}
+              maxLength={1000}
+              autoFocus={autoFocus && ci === 0}
+              value={row[c.field]}
+              onChange={(e) => onChange(c.field, e.target.value)}
+            />
+          )}
         </div>
       ))}
     </div>

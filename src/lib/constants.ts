@@ -4,7 +4,7 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const ROW_KIND = { SCENE: "SCENE", SHOT: "SHOT" } as const;
 export type RowKind = (typeof ROW_KIND)[keyof typeof ROW_KIND];
 
-/** Suggested cell values (offered via <datalist>; any text is still accepted). */
+/** Suggested cell values (offered by ComboboxInput; any text is still accepted). */
 export type CellOption = { value: string; label?: string };
 
 export const INT_EXT_OPTIONS: CellOption[] = [{ value: "INT." }, { value: "EXT." }, { value: "INT./EXT." }];
