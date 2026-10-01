@@ -36,8 +36,10 @@ src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emp
 src/lib/sceneNumbers.ts PURE: parse/format/compare scene numbers, nextSceneNumber, subsceneBetween, runRange, siblingRange, shiftRange
 src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, userId), toRowRecords
 src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist)
-src/components/       Nav (GuardedLinks; Log in / Sign up, or @username + LogoutButton),
-                      NavigationGuard (provider in the root layout, useNavigationGuard, GuardedLink, LogoutButton),
+src/components/       Nav (GuardedLinks: Home, New Shotlist, My Shotlists; Log in / Sign up, or @username + LogoutButton),
+                      NavigationGuard (provider in the root layout, useNavigationGuard, GuardedLink, LogoutButton,
+                      resetKey — bumped when a GuardedLink targets the current page; /shotlists/new keys its editor
+                      on it via NewShotlistEditor so "New Shotlist" from a new shotlist starts over),
                       LocalTime (date/time in the viewer's time zone),
                       ChoiceDialog/ChoiceCard (the editor's pop-ups: one card per outcome, Back/Cancel),
 src/app/shotlists/ShotlistCards.tsx  My Shotlists grid + delete confirmation (Cancel / Delete buttons; deleteShotlist in a transition)
