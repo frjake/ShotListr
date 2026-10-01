@@ -43,6 +43,13 @@ Sign up with a username, email and password (bcrypt-hashed). Logging in with eit
 email creates a 30-day session stored in the database and referenced by an HttpOnly cookie.
 "My Shotlists" and "New Shotlist" require login and send you back there afterwards.
 
+## Shotlists
+
+"Create new shotlist +" opens a spreadsheet that starts with one empty scene row and one shot
+row. Hover over any line between rows (or above the first / below the last) to insert a scene or
+a shot there. Scenes are numbered 1, 2, 3 and shots 1A, 1B, 2A… automatically. Int./Ext., Time,
+Framing and Angle suggest standard values but accept anything. Save stores it to your account.
+
 ## Scripts
 
 | Command | What it does |

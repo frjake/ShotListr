@@ -11,7 +11,7 @@ See `README.md` for setup. Dev server runs on **port 8000**.
 - Prisma 7 with the `prisma-client` generator → output `src/generated/prisma` (gitignored; run
   `npx prisma generate`). SQLite via `@prisma/adapter-better-sqlite3`; the client singleton is
   `src/lib/db.ts`. Config lives in `prisma.config.ts` (URL comes from `.env` via dotenv), not in the schema.
-  Models: `User`, `Session`.
+  Models: `User`, `Session`, `Shotlist`, `ShotlistRow`.
 - Node ≥ 22. `better-sqlite3` and Prisma have install scripts; npm may need
   `npm approve-scripts better-sqlite3 prisma @prisma/engines`.
 - Next 16 specifics: `params`/`searchParams` are Promises; `cookies()` is async; use the global
@@ -29,12 +29,16 @@ See `README.md` for setup. Dev server runs on **port 8000**.
 ```
 src/lib/db.ts         Prisma client singleton (adapter wired here)
 src/lib/auth.ts       server-only: bcrypt, DB sessions, cookie `shotlistr_session`, getCurrentUser() (React cache), requireUser()
-src/lib/constants.ts  SESSION_COOKIE, SESSION_TTL_MS (30 days)
-src/app/actions/      'use server' files: auth (register, login, logout)
-src/components/       Nav (shows Log in / Sign up, or @username + Log out)
+src/lib/constants.ts  SESSION_COOKIE, SESSION_TTL_MS (30 days), ROW_KIND, cell suggestion lists (INT_EXT/TIME/FRAMING/ANGLE_OPTIONS)
+src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emptyRow, cleanRow, rowLabels (1, 1A, 1B, 2…)
+src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, userId), toRowRecords
+src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist)
+src/components/       Nav (shows Log in / Sign up, or @username + Log out),
+                      ShotlistEditor (spreadsheet: two sticky header rows, hover InsertZones, Save form)
 ```
 
-Routes: `/`, `/login`, `/register`, `/shotlists` and `/shotlists/new` (both require login).
+Routes: `/`, `/login`, `/register`, `/shotlists`, `/shotlists/new`, `/shotlists/[shotlistId]` (all three require login;
+the last 404s unless you own it).
 
 ## Conventions
 
@@ -44,6 +48,17 @@ Routes: `/`, `/login`, `/register`, `/shotlists` and `/shotlists/new` (both requ
   `/login?next=…`; the login/register actions send the user back to `next` (same-origin paths only).
   Pages and components get a `SafeUser` (never the password hash). Login uses one error message
   for unknown user and wrong password.
+- **Shotlist rows are one flat ordered list** (`ShotlistRow.position`) of SCENE and SHOT rows, so a
+  scene can be inserted between shots. Each row has every column; only its kind's fields are kept
+  (`cleanRow`, applied on save). Scene/shot numbers are **derived** by `rowLabels` from order —
+  never stored. Shots above the first scene get letters only.
+- **Saving** sends the whole sheet as JSON in a hidden input; `saveShotlist` creates (then
+  redirects to `/shotlists/[id]`) or replaces title + all rows in one transaction. It returns an
+  error instead of redirecting when signed out, so unsaved edits survive. Only the Save button is
+  inside the `<form>`, so Enter in a cell doesn't submit.
+- **InsertZone pop-ups must stay shorter than a row.** Each zone is a 10px strip on a row boundary;
+  a hovered zone is raised above its neighbours, so a pop-up taller than a row would cover the next
+  boundary and keep the wrong zone open.
 - Server components can be async and query Prisma directly; client components (`'use client'`)
   call actions via `<form action>` / `useActionState`.
 

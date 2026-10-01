@@ -6,6 +6,8 @@
   --surface: #5c0a0a;
   --muted: #e5b8b8;
   --line: #7a2222;
+  --scene: #6e1515;
+  --header: #2e0000;
 }
 
 @theme inline {
@@ -14,6 +16,8 @@
   --color-surface: var(--surface);
   --color-muted: var(--muted);
   --color-line: var(--line);
+  --color-scene: var(--scene);
+  --color-header: var(--header);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
