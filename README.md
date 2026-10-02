@@ -52,7 +52,7 @@ effect right away; a new shotlist's script is stored when it's first saved.
 
 **Link shots to the script.** While a script is attached the sheet has a Script column. Click a
 shot's cell to open its scene's text beside the sheet, click the paragraphs that shot
-covers (click one again to unselect it; shift-click adds a run), and Link them — a shot can have several sections, and every shot's lines are highlighted so
+covers (a character and their lines are selected together; click again to unselect, shift-click adds a run), and Link them — a shot can have several sections, and every shot's lines are highlighted so
 you can see what isn't covered yet. Scenes you added by hand pick their scene in the script first.
 Replace the script with a new draft and links are found again by their text; any that can't be are
 marked ⚠ "needs re-linking". The download includes a "Script links" sheet.

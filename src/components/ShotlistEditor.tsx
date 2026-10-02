@@ -619,7 +619,6 @@ export function ShotlistEditor({
     setAnnouncement(`Autofilled ${scenes.length} scene${scenes.length === 1 ? "" : "s"} from the script`);
     setCharacters(list);
     setRows(sortAllCells(next, list));
-    setCharactersOpen(true);
     closeDialog();
   }
 

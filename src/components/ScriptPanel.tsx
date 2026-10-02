@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { coverageFor, formatParagraphs, formatRuns, runsOf, type ShotLink } from "@/lib/scriptLinks";
+import { coverageFor, formatParagraphs, formatRuns, paragraphGroups, runsOf, type ShotLink } from "@/lib/scriptLinks";
 import { displayHeading, type DocParagraph, type ScriptDoc } from "@/lib/scriptParse/scenes";
 
 export type PanelShot = { key: string; label: string; link: ShotLink | null };
@@ -27,8 +27,8 @@ const INDENT: Record<DocParagraph["type"], string> = {
 
 /**
  * The script side panel: the text of one scene (laid out like a screenplay) with every shot's linked
- * paragraphs highlighted and labelled. Select paragraphs (click toggles one, shift-click adds a run,
- * or ↑/↓ + Space, Shift+↑/↓ to add) and link them to the current shot (or, from a scene row, any of
+ * paragraphs highlighted and labelled. Select paragraphs (click toggles one — a character and their
+ * lines go together — shift-click adds a run, or ↑/↓ + Space, Shift+↑/↓ to add) and link them to the current shot (or, from a scene row, any of
  * its shots); each run becomes a section. The current shot's sections are listed with ×. A scene that
  * isn't linked to the script yet (or "Change") shows a searchable list of the script's scenes.
  */
@@ -186,12 +186,14 @@ function SceneText({
 }) {
   const seg = doc.segments[segment];
   const heading = displayHeading(seg.heading);
-  // Selected paragraphs stay selected until clicked again (or linked / cleared); `anchor` is where a
-  // shift-click run starts.
+  // Each option is a group of paragraphs (a speech, or one other paragraph). Selected paragraphs stay
+  // selected until clicked again (or linked / cleared); `anchor` (a group) is where a shift-click run
+  // starts, `active` the group with the tab stop.
+  const groups = paragraphGroups(seg.paragraphs);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [anchor, setAnchor] = useState<number | null>(null);
   const [active, setActive] = useState(0);
-  const paraEls = useRef<(HTMLDivElement | null)[]>([]);
+  const optionEls = useRef<(HTMLDivElement | null)[]>([]);
 
   const coverage = coverageFor(shots.map((s) => ({ id: s.key, link: s.link })), segment);
   const tintOf = new Map(shots.map((s, i) => [s.key, TINTS[i % TINTS.length]]));
@@ -200,31 +202,36 @@ function SceneText({
   const runs = runsOf(selected);
   const range = formatRuns(runs);
 
-  /** Adds paragraphs `from`–`to` to the selection (never removes any). */
-  function addRun(from: number, to: number) {
+  /** Adds groups `a`–`b` to the selection (never removes any). */
+  function addGroups(a: number, b: number) {
     const next = new Set(selected);
-    for (let p = Math.min(from, to); p <= Math.max(from, to); p++) next.add(p);
+    for (let p = groups[Math.min(a, b)][0]; p <= groups[Math.max(a, b)][1]; p++) next.add(p);
     setSelected(next);
   }
 
-  /** Click / Space: toggles one paragraph; with Shift, adds the run from the last one chosen. */
-  function choose(i: number, extend: boolean) {
-    setActive(i);
-    setAnchor(i);
-    if (extend && anchor !== null) return addRun(anchor, i);
+  /** Click / Space: toggles one group; with Shift, adds the run from the last one chosen. */
+  function choose(g: number, extend: boolean) {
+    setActive(g);
+    setAnchor(g);
+    if (extend && anchor !== null) return addGroups(anchor, g);
+    const [from, to] = groups[g];
     const next = new Set(selected);
-    if (!next.delete(i)) next.add(i);
+    const on = next.has(from);
+    for (let p = from; p <= to; p++) {
+      if (on) next.delete(p);
+      else next.add(p);
+    }
     setSelected(next);
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      const next = Math.max(0, Math.min(seg.paragraphs.length - 1, active + (e.key === "ArrowDown" ? 1 : -1)));
+      const next = Math.max(0, Math.min(groups.length - 1, active + (e.key === "ArrowDown" ? 1 : -1)));
       setActive(next);
-      paraEls.current[next]?.focus();
+      optionEls.current[next]?.focus();
       if (e.shiftKey) {
-        addRun(active, next);
+        addGroups(active, next);
         setAnchor(next);
       }
     } else if (e.key === " " || e.key === "Enter") {
@@ -305,9 +312,10 @@ function SceneText({
         onKeyDown={onKeyDown}
       >
         {seg.paragraphs.length === 0 && <p className="px-2 text-muted">This scene has no text after its heading.</p>}
-        {seg.paragraphs.map((p, i) => {
-          const covering = coverage.get(i) ?? [];
-          const isSelected = selected.has(i);
+        {groups.map(([from, to], g) => {
+          const paras = seg.paragraphs.slice(from, to + 1);
+          const covering = [...new Set(paras.flatMap((_, k) => coverage.get(from + k) ?? []))];
+          const isSelected = selected.has(from);
           const mine = current !== null && covering.includes(current);
           const other = covering.find((k) => k !== current);
           const look = isSelected
@@ -319,16 +327,22 @@ function SceneText({
                 : "border-transparent hover:bg-foreground/5";
           return (
             <div
-              key={i}
-              ref={(el) => void (paraEls.current[i] = el)}
+              key={from}
+              ref={(el) => void (optionEls.current[g] = el)}
               role="option"
               aria-selected={isSelected}
-              tabIndex={i === active ? 0 : -1}
+              tabIndex={g === active ? 0 : -1}
               className={`flex cursor-pointer gap-2 rounded-sm border-l-4 px-2 py-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/70 ${look}`}
-              onClick={(e) => choose(i, e.shiftKey)}
-              onFocus={() => setActive(i)}
+              onClick={(e) => choose(g, e.shiftKey)}
+              onFocus={() => setActive(g)}
             >
-              <span className={`min-w-0 flex-1 whitespace-pre-wrap ${INDENT[p.type]}`}>{p.text}</span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                {paras.map((p, k) => (
+                  <span key={k} className={`whitespace-pre-wrap ${INDENT[p.type]}`}>
+                    {p.type === "character" ? p.text.toUpperCase() : p.text}
+                  </span>
+                ))}
+              </span>
               {covering.length > 0 && (
                 <span className="flex shrink-0 flex-col items-end gap-0.5 font-sans">
                   {covering.map((k) => (

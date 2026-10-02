@@ -51,7 +51,7 @@ src/lib/scriptParse/  reads scripts into scenes. index.ts (server-only): parseSc
 src/lib/dragScroll.ts autoScrollStep: one frame of drag auto-scroll (edges clipped to the window; the page scrolls once
                       the element can't) — run per animation frame by the row drag and the character-list drag
 src/lib/scriptLinks.ts PURE: row ↔ script links (`scriptLink` JSON): SceneLink {v, scene, heading} / ShotLink {v, sections:
-                      [{scene, from, to, paras, broken?}]}; addSection (merges touching runs), removeSection, runsOf/formatRuns (selection → runs), formatParagraphs,
+                      [{scene, from, to, paras, broken?}]}; addSection (merges touching runs), removeSection, paragraphGroups (speech = one option), runsOf/formatRuns (selection → runs), formatParagraphs,
                       linkSummary, coverageFor, reanchorRows (new draft → find again by heading/text, else broken),
                       staleShotsUnder, scriptLinksTable (download sheet)
 src/lib/scriptStore.ts server-only: readScriptText (doc + scenes + version), storedScriptText (fills doc/version lazily)
@@ -165,7 +165,7 @@ the last 404s unless you own it).
   saved with Save, max 200k chars): autofill links each scene row to its segment; a shot links to
   whole-paragraph runs (`sections`) of its scene's segment, keeping their text. While a script is
   attached the sheet shows a Script column; its cells open `ScriptPanel` beside the sheet (fixed
-  full-screen on phones): click toggles a paragraph (selections stay until clicked again), shift-click / Shift+↑↓ add a run,
+  full-screen on phones): click toggles a paragraph — a character cue and its parentheticals/dialogue are one option (`paragraphGroups`), names shown in capitals — (selections stay until clicked again), shift-click / Shift+↑↓ add a run,
   ↑↓+Space; "Link ¶2–4, ¶7 to 1B" (each run becomes a section); headings shown via `displayHeading` (INT. Title Case);
   every shot's coverage is tinted + labelled; unlinked scenes (hand-added) pick a segment from a
   searchable list ("Change scene" re-picks; that scene's shots are re-found via `staleShotsUnder`).

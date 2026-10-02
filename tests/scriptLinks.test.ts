@@ -6,6 +6,7 @@ import {
   coverageFor,
   formatParagraphs,
   formatRuns,
+  paragraphGroups,
   linkSummary,
   readSceneLink,
   readShotLink,
@@ -94,6 +95,14 @@ describe("sections", () => {
 });
 
 describe("selected paragraphs", () => {
+  it("keeps a character with their parentheticals and dialogue", () => {
+    expect(paragraphGroups(doc.segments[0].paragraphs)).toEqual([[0, 0], [1, 2], [3, 5], [6, 6]]);
+    expect(paragraphGroups([D("Stray line."), C("ANA"), A("She leaves.")])).toEqual([[0, 0], [1, 1], [2, 2]]);
+  });
+  it("writes character names in capitals", () => {
+    expect(formatParagraphs([C("Ben (V.O.)"), D("Later.")])).toEqual(["BEN (V.O.): Later."]);
+  });
+
   it("groups selections into runs of neighbours, in order", () => {
     expect(runsOf([6, 2, 1, 3, 3])).toEqual([[1, 3], [6, 6]]);
     expect(runsOf([])).toEqual([]);

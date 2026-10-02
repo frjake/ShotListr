@@ -75,6 +75,20 @@ export function addSection(link: ShotLink | null, doc: ScriptDoc, version: strin
   return { v: version, sections: [...keep, { scene, from: lo, to: hi, paras }].sort(byPosition) };
 }
 
+/**
+ * How paragraphs are selected and linked: a character cue together with the parentheticals and
+ * dialogue under it is one speech; anything else stands alone. Returns each group's [from, to].
+ */
+export function paragraphGroups(paras: readonly DocParagraph[]): [number, number][] {
+  const groups: [number, number][] = [];
+  paras.forEach((p, i) => {
+    const last = groups.at(-1);
+    if (last && paras[last[0]].type === "character" && (p.type === "parenthetical" || p.type === "dialogue")) last[1] = i;
+    else groups.push([i, i]);
+  });
+  return groups;
+}
+
 /** Selected paragraph indexes as runs of neighbours, in order: [1, 2, 3, 6] → [[1, 3], [6, 6]]. */
 export function runsOf(indexes: Iterable<number>): [number, number][] {
   const runs: [number, number][] = [];
@@ -98,8 +112,8 @@ export function removeSection(link: ShotLink, index: number): ShotLink | null {
 }
 
 /**
- * Script text as display lines: a speech becomes "NAME (parenthetical): words", everything else
- * its own text — "BEN (sleepy): Hi.", "Ana pours coffee."
+ * Script text as display lines: a speech becomes "NAME (parenthetical): words" (the name in capitals,
+ * as scripts write it), everything else its own text — "BEN (sleepy): Hi.", "Ana pours coffee."
  */
 export function formatParagraphs(paras: readonly DocParagraph[]): string[] {
   const lines: string[] = [];
@@ -113,7 +127,7 @@ export function formatParagraphs(paras: readonly DocParagraph[]): string[] {
   for (const p of paras) {
     if (p.type === "character") {
       flush();
-      speech = { name: p.text, parens: [], words: [] };
+      speech = { name: p.text.toUpperCase(), parens: [], words: [] };
     } else if (speech && p.type === "parenthetical") {
       speech.parens.push(p.text);
     } else if (speech && p.type === "dialogue") {
