@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { coverageFor, formatParagraphs, formatRuns, paragraphGroups, runsOf, type ShotLink } from "@/lib/scriptLinks";
 import { displayHeading, type DocParagraph, type ScriptDoc } from "@/lib/scriptParse/scenes";
 
@@ -190,15 +190,33 @@ function SceneText({
   // selected until clicked again (or linked / cleared); `anchor` (a group) is where a shift-click run
   // starts, `active` the group with the tab stop.
   const groups = paragraphGroups(seg.paragraphs);
+  const currentShot = shots.find((s) => s.key === current) ?? null;
+  // The group holding the current shot's first linked paragraph in this scene (-1 if none).
+  const firstLinked = (() => {
+    const froms = (currentShot?.link?.sections ?? []).filter((s) => !s.broken && s.scene === segment).map((s) => s.from);
+    if (!froms.length) return -1;
+    const first = Math.min(...froms);
+    return groups.findIndex(([from, to]) => first >= from && first <= to);
+  })();
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [anchor, setAnchor] = useState<number | null>(null);
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(Math.max(0, firstLinked));
+  const listEl = useRef<HTMLDivElement>(null);
   const optionEls = useRef<(HTMLDivElement | null)[]>([]);
+
+  // On opening (this component is keyed per scene and shot), start at the shot's first linked
+  // paragraph; near the end of the scene the scroll just stops at the bottom.
+  useLayoutEffect(() => {
+    const list = listEl.current;
+    const option = optionEls.current[firstLinked];
+    if (list && option) list.scrollTop = option.offsetTop - list.offsetTop;
+    // Only when first shown — linking more lines shouldn't move the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const coverage = coverageFor(shots.map((s) => ({ id: s.key, link: s.link })), segment);
   const tintOf = new Map(shots.map((s, i) => [s.key, TINTS[i % TINTS.length]]));
   const labelOf = new Map(shots.map((s) => [s.key, s.label]));
-  const currentShot = shots.find((s) => s.key === current) ?? null;
   const runs = runsOf(selected);
   const range = formatRuns(runs);
 
@@ -305,6 +323,7 @@ function SceneText({
       </div>
 
       <div
+        ref={listEl}
         role="listbox"
         aria-multiselectable="true"
         aria-label={`Paragraphs of ${heading}`}
