@@ -50,6 +50,13 @@ A new shotlist starts by asking whether to attach a script (.doc, .docx, .pdf or
 or use Replace / Remove; without one there's an "Add script" button. On a saved shotlist these take
 effect right away; a new shotlist's script is stored when it's first saved.
 
+**Link shots to the script.** While a script is attached the sheet has a Script column. Click a
+shot's cell to open its scene's text beside the sheet, click the paragraphs that shot
+covers (click one again to unselect it; shift-click adds a run), and Link them — a shot can have several sections, and every shot's lines are highlighted so
+you can see what isn't covered yet. Scenes you added by hand pick their scene in the script first.
+Replace the script with a new draft and links are found again by their text; any that can't be are
+marked ⚠ "needs re-linking". The download includes a "Script links" sheet.
+
 **Characters** (above the sheet) is the shotlist's character list. Autofill fills it in order of
 first mention; drag the ⠿ grip (or use ↑/↓) to reorder, click a name to rename it, or add and remove
 names. The + in a name's box ("Add to scene") adds that character to a scene by number. Every scene's Characters cell follows the list's order, renames and removals update the

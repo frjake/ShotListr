@@ -8,6 +8,7 @@ import { ChoiceCard, ChoiceDialog, ConfirmDialog } from "@/components/ChoiceDial
 import { ComboboxInput } from "@/components/ComboboxInput";
 import { useNavigationGuard } from "@/components/NavigationGuard";
 import { ScriptBar, type ScriptBusy } from "@/components/ScriptBar";
+import { ScriptPanel } from "@/components/ScriptPanel";
 import { appendScenes, mergeScenes, scenesToRows, scriptSummary, sheetIsEmpty } from "@/lib/autofill";
 import { CharacterList } from "@/components/CharacterList";
 import {
@@ -24,8 +25,22 @@ import {
   sortCell,
 } from "@/lib/characters";
 import { autoScrollStep } from "@/lib/dragScroll";
+import {
+  addSection,
+  formatRuns,
+  linkSummary,
+  readSceneLink,
+  readShotLink,
+  reanchorRows,
+  removeSection,
+  sceneRowFor,
+  shotsUnder,
+  staleShotsUnder,
+  writeSceneLink,
+  writeShotLink,
+} from "@/lib/scriptLinks";
 import { downloadShotlist } from "@/lib/exportShotlist";
-import type { ScriptScene } from "@/lib/scriptParse/scenes";
+import { displayHeading, type ScriptDoc, type ScriptScene } from "@/lib/scriptParse/scenes";
 import { MAX_SCRIPT_BYTES, SCRIPT_ACCEPT, formatFileSize, scriptProblem, titleFromFileName, type ScriptInfo } from "@/lib/scripts";
 import {
   ANGLE_OPTIONS,
@@ -76,6 +91,8 @@ const SHOT_COLUMNS: Column[] = [
 
 /** Number column + four data columns, shared by scene rows, shot rows and both header rows. */
 const GRID = "grid grid-cols-[7rem_minmax(7rem,1fr)_minmax(9rem,1.5fr)_minmax(7rem,1fr)_minmax(13rem,2fr)]";
+/** The same, plus a Script column (shown while the shotlist has a script). */
+const GRID_SCRIPT = "grid grid-cols-[7rem_minmax(7rem,1fr)_minmax(9rem,1.5fr)_minmax(7rem,1fr)_minmax(13rem,2fr)_minmax(10rem,1.3fr)]";
 const CELL = "border-b border-r border-line last:border-r-0";
 
 type EditorRow = RowData & { key: string };
@@ -102,7 +119,7 @@ type Pending =
   // "Are you sure?" before removing a stored script.
   | { type: "removeScript" }
   // Scenes read from a script, waiting for the user to apply them (and choose how, if the sheet has data).
-  | { type: "autofill"; fileName: string; scenes: ScriptScene[] }
+  | { type: "autofill"; fileName: string; scenes: ScriptScene[]; version: string }
   // "Are you sure?" before removing a character that scenes list.
   | { type: "removeCharacter"; name: string }
   // Leaving with unsaved changes: save first, leave anyway, or stay.
@@ -160,6 +177,12 @@ export function ShotlistEditor({
   const [scriptBusy, setScriptBusy] = useState<ScriptBusy | null>(null);
   const [scriptError, setScriptError] = useState<string | null>(null);
   const scriptInputEl = useRef<HTMLInputElement>(null);
+  // The current script's text and version, once read (on autofill, attaching, or opening a scene).
+  const [scriptText, setScriptText] = useState<{ doc: ScriptDoc; version: string } | null>(null);
+  // The script side panel: the row it was opened from (a shot, or a scene), and whether it's picking the scene.
+  const [panel, setPanel] = useState<{ key: string; picking: boolean } | null>(null);
+  const [panelLoading, setPanelLoading] = useState(false);
+  const [panelError, setPanelError] = useState<string | null>(null);
   const [numberError, setNumberError] = useState<{ key: string; message: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -535,12 +558,18 @@ export function ShotlistEditor({
       const result = await attachScript(id, body);
       if (!result.script) return setScriptError(result.error ?? "Couldn't attach the script. Try again.");
       setScript(result.script);
+      if (result.doc && result.version) adoptScriptText({ doc: result.doc, version: result.version });
+      // The upload also read the script: offer autofill straight away (or say why it can't).
+      if (result.scenes?.length && result.version) {
+        setPendingChoice({ type: "autofill", fileName: file.name, scenes: result.scenes, version: result.version });
+      } else if (result.parseError) {
+        setScriptError(result.parseError);
+      }
     } catch {
-      return setScriptError("Couldn't upload the script. Try again.");
+      setScriptError("Couldn't upload the script. Try again.");
     } finally {
       setScriptBusy(null);
     }
-    await autofill(file);
   }
 
   /** Reads scenes from a script (a picked file, or the stored one) and shows what was found. */
@@ -556,8 +585,14 @@ export function ShotlistEditor({
         body.set("script", source);
         result = await parseScriptFile(body);
       }
-      if (!result.scenes) return setScriptError(result.error ?? "Couldn't read the script.");
-      setPendingChoice({ type: "autofill", fileName: source === "stored" ? script!.fileName : source.name, scenes: result.scenes });
+      if (result.doc && result.version) adoptScriptText({ doc: result.doc, version: result.version });
+      if (!result.scenes?.length || !result.version) return setScriptError(result.error ?? "Couldn't read the script.");
+      setPendingChoice({
+        type: "autofill",
+        fileName: source === "stored" ? script!.fileName : source.name,
+        scenes: result.scenes,
+        version: result.version,
+      });
     } catch {
       setScriptError("Couldn't read the script. Try again.");
     } finally {
@@ -569,11 +604,15 @@ export function ShotlistEditor({
    * Puts the script's scenes into the sheet (an unsaved change, like any edit), and names an untitled
    * shotlist after the script's file.
    */
-  function applyAutofill(fileName: string, scenes: ScriptScene[], mode: "replace" | "merge" | "append") {
+  function applyAutofill(fileName: string, scenes: ScriptScene[], version: string, mode: "replace" | "merge" | "append") {
     if (!title.trim()) setTitle(titleFromFileName(fileName));
     const create = (row: RowData): EditorRow => ({ ...row, key: `r${nextKey.current++}` });
     const next =
-      mode === "merge" ? mergeScenes(rows, scenes, create) : mode === "append" ? appendScenes(rows, scenes, create) : scenesToRows(scenes).map(create);
+      mode === "merge"
+        ? mergeScenes(rows, scenes, create, version)
+        : mode === "append"
+          ? appendScenes(rows, scenes, create, version)
+          : scenesToRows(scenes, version).map(create);
     // Replacing starts the list over in order of first mention; otherwise newcomers go at the end.
     const fromScript = scriptCharacters(scenes);
     const list = addCharacters(mode === "replace" ? fromScript : addCharacters(characters, fromScript), charactersInRows(next));
@@ -596,12 +635,87 @@ export function ShotlistEditor({
       const result = await removeScript(id!);
       if (result.error) return setScriptError(result.error);
       setScript(null);
+      setScriptText(null); // shots keep their links, hidden until a script is attached again
       closeDialog();
     } catch {
       setScriptError("Couldn't remove the script. Try again.");
     } finally {
       setScriptBusy(null);
     }
+  }
+
+  // ----- Linking shots to the script -----
+
+  /**
+   * Takes on a script's text. Links made against another version (a new draft, or a script attached
+   * again after being removed) are found again in it; any that can't be are flagged on their shots.
+   */
+  function adoptScriptText(text: { doc: ScriptDoc; version: string }) {
+    setScriptText(text);
+    setRows((prev) => {
+      const { rows: next } = reanchorRows(prev, text.doc, text.version);
+      return next.every((r, i) => r === prev[i]) ? prev : next;
+    });
+  }
+
+  /** The script's text, reading it first if needed (for the panel). */
+  async function ensureScriptText() {
+    if (scriptText) return scriptText;
+    setPanelLoading(true);
+    setPanelError(null);
+    try {
+      let result;
+      if (pendingScript) {
+        const body = new FormData();
+        body.set("script", pendingScript);
+        result = await parseScriptFile(body);
+      } else {
+        result = await parseStoredScript(id!);
+      }
+      if (!result.doc || !result.version) {
+        setPanelError(result.error ?? "Couldn't read the script.");
+        return null;
+      }
+      const text = { doc: result.doc, version: result.version };
+      adoptScriptText(text);
+      return text;
+    } catch {
+      setPanelError("Couldn't read the script. Try again.");
+      return null;
+    } finally {
+      setPanelLoading(false);
+    }
+  }
+
+  function openScript(key: string) {
+    setPanel({ key, picking: false });
+    void ensureScriptText();
+  }
+
+  /** Links the panel's scene row to a script scene, and finds its shots' links in it again. */
+  function pickScriptScene(sceneIndex: number, segment: number) {
+    if (!scriptText) return;
+    const { doc, version } = scriptText;
+    const linked = rows.map((r, i) => (i === sceneIndex ? { ...r, scriptLink: writeSceneLink({ v: version, scene: segment, heading: doc.segments[segment].heading }) } : r));
+    setRows(reanchorRows(staleShotsUnder(linked, sceneIndex), doc, version).rows);
+    setPanel((p) => p && { ...p, picking: false });
+  }
+
+  /** Links runs of paragraphs (each [from, to]) of a script scene to a shot. */
+  function linkLines(shotKey: string, segment: number, runs: [number, number][]) {
+    if (!scriptText || runs.length === 0) return;
+    const { doc, version } = scriptText;
+    const row = rows.find((r) => r.key === shotKey);
+    if (!row) return;
+    const link = runs.reduce((l, [from, to]) => addSection(l, doc, version, segment, from, to), readShotLink(row.scriptLink));
+    updateCell(shotKey, "scriptLink", writeShotLink(link));
+    setAnnouncement(`Linked ${formatRuns(runs).replaceAll("¶", "paragraph ")}`);
+  }
+
+  function unlinkSection(shotKey: string, index: number) {
+    const row = rows.find((r) => r.key === shotKey);
+    const link = row && readShotLink(row.scriptLink);
+    if (link) updateCell(shotKey, "scriptLink", writeShotLink(removeSection(link, index)));
   }
 
   /** Builds and downloads an .xlsx of the given title and rows. */
@@ -665,8 +779,28 @@ export function ShotlistEditor({
     dialogEl.current?.close();
   };
 
+  // The Script column and panel exist while the shotlist has a script (links stay hidden otherwise).
+  const hasScript = !!(script || pendingScript);
+  const panelIndex = panel && hasScript ? rows.findIndex((r) => r.key === panel.key) : -1;
+  const panelRow = panelIndex === -1 ? null : rows[panelIndex];
+  const panelSceneIndex = panelRow ? (panelRow.kind === ROW_KIND.SCENE ? panelIndex : sceneRowFor(rows, panelIndex)) : -1;
+  const panelSceneLink = panelSceneIndex === -1 ? null : readSceneLink(rows[panelSceneIndex].scriptLink);
+  const panelSegment =
+    panelSceneLink && scriptText && panelSceneLink.scene < scriptText.doc.segments.length ? panelSceneLink.scene : null;
+  const panelShots =
+    panelSceneIndex === -1
+      ? []
+      : shotsUnder(rows, panelSceneIndex).map((i) => ({ key: rows[i].key, label: labels[i], link: readShotLink(rows[i].scriptLink) }));
+  const grid = hasScript ? GRID_SCRIPT : GRID;
+  const shotsNeedingRelink = hasScript ? rows.filter((r) => r.kind === ROW_KIND.SHOT && linkSummary(readShotLink(r.scriptLink))?.broken).length : 0;
+
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-6">
+    <div
+      className={`mx-auto w-full flex-1 px-4 py-6 ${
+        panelRow ? "max-w-[100rem] lg:grid lg:grid-cols-[minmax(0,1fr)_28rem] lg:items-start lg:gap-6" : "max-w-6xl"
+      }`}
+    >
+    <div className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <h1 className="text-2xl font-semibold">{heading}</h1>
         <div className="ml-auto flex items-center gap-3">
@@ -708,6 +842,11 @@ export function ShotlistEditor({
         pending={pendingScript}
         busy={scriptBusy}
         error={pendingChoice?.type === "removeScript" ? null : scriptError}
+        notice={
+          shotsNeedingRelink
+            ? `${shotsNeedingRelink} shot${shotsNeedingRelink === 1 ? " needs" : "s need"} re-linking — their lines weren't found in this script (marked ⚠ in the Script column).`
+            : null
+        }
         onPick={pickScript}
         onRemove={requestRemoveScript}
         onAutofill={() => void autofill(pendingScript ?? "stored")}
@@ -752,16 +891,28 @@ export function ShotlistEditor({
         data-sheet
         className={`max-h-[calc(100dvh-15rem)] min-h-64 overflow-auto rounded-lg border border-line ${drag ? "cursor-grabbing select-none" : ""}`}
       >
-        <div className="min-w-[49rem] pb-12">
+        <div className={`${hasScript ? "min-w-[60rem]" : "min-w-[49rem]"} pb-12`}>
           <div ref={headerEl} className="sticky top-0 z-20 text-xs font-semibold uppercase tracking-wide">
-            <HeaderRow className="bg-scene" number="Scene #" columns={SCENE_COLUMNS} />
-            <HeaderRow className="bg-header text-muted" number="Shot #" columns={SHOT_COLUMNS} />
+            <HeaderRow grid={grid} className="bg-scene" number="Scene #" columns={SCENE_COLUMNS} script={hasScript ? "Script scene" : null} />
+            <HeaderRow grid={grid} className="bg-header text-muted" number="Shot #" columns={SHOT_COLUMNS} script={hasScript ? "Script" : null} />
           </div>
 
           <InsertZone boundary={0} drag={drag} open={openZone === 0} onShow={showZone} onHide={hideZoneSoon} onInsert={insertFromZone} />
           {rows.map((row, i) => (
             <div key={row.key}>
               <SheetRow
+                grid={grid}
+                scriptCell={
+                  hasScript ? (
+                    <ScriptCell
+                      row={row}
+                      label={labels[i]}
+                      inScene={row.kind === ROW_KIND.SCENE || sceneRowFor(rows, i) !== -1}
+                      open={panel?.key === row.key}
+                      onOpen={() => openScript(row.key)}
+                    />
+                  ) : null
+                }
                 row={row}
                 label={labels[i]}
                 autoFocus={row.key === focusKey}
@@ -809,6 +960,27 @@ export function ShotlistEditor({
           ))}
         </div>
       </div>
+
+    </div>
+      {panelRow && panelSceneIndex !== -1 && (
+        <ScriptPanel
+          title={panelRow.kind === ROW_KIND.SHOT ? `Script · Shot ${labels[panelIndex]}` : `Script · Scene ${labels[panelIndex]}`}
+          doc={scriptText?.doc ?? null}
+          loading={panelLoading}
+          error={panelError}
+          segment={panelSegment}
+          picking={panel!.picking}
+          shots={panelShots}
+          current={panelRow.kind === ROW_KIND.SHOT ? panelRow.key : null}
+          onPick={(segment) => pickScriptScene(panelSceneIndex, segment)}
+          onChangeScene={() => setPanel((p) => p && { ...p, picking: true })}
+          onCancelPick={() => setPanel((p) => p && { ...p, picking: false })}
+          onSelectShot={(key) => setPanel({ key, picking: false })}
+          onLink={(shotKey, runs) => panelSegment !== null && linkLines(shotKey, panelSegment, runs)}
+          onRemoveSection={unlinkSection}
+          onClose={() => setPanel(null)}
+        />
+      )}
 
       <p aria-live="polite" className="sr-only">{announcement}</p>
 
@@ -884,7 +1056,7 @@ export function ShotlistEditor({
             newTitle={title.trim() ? null : titleFromFileName(pendingChoice.fileName)}
             scenes={pendingChoice.scenes}
             rows={rows}
-            onApply={(mode) => applyAutofill(pendingChoice.fileName, pendingChoice.scenes, mode)}
+            onApply={(mode) => applyAutofill(pendingChoice.fileName, pendingChoice.scenes, pendingChoice.version, mode)}
             onCancel={closeDialog}
           />
         )}
@@ -969,18 +1141,80 @@ export function ShotlistEditor({
   );
 }
 
-function HeaderRow({ className, number, columns }: { className: string; number: string; columns: Column[] }) {
+function HeaderRow({
+  grid,
+  className,
+  number,
+  columns,
+  script,
+}: {
+  grid: string;
+  className: string;
+  number: string;
+  columns: Column[];
+  script: string | null;
+}) {
   return (
-    <div className={`${GRID} ${className}`}>
+    <div className={`${grid} ${className}`}>
       <div className={`${CELL} py-1.5 pl-7 pr-2`}>{number}</div>
       {columns.map((c) => (
         <div key={c.field} className={`${CELL} px-2 py-1.5`}>{c.label}</div>
       ))}
+      {script && <div className={`${CELL} px-2 py-1.5`}>{script}</div>}
+    </div>
+  );
+}
+
+/**
+ * A row's Script cell. A scene row shows the script scene it's linked to (or "Choose script scene");
+ * a shot row shows its first linked line, "+N more", and a warning if any need re-linking. Clicking
+ * opens the side panel. Shots above the first scene have nothing to link to.
+ */
+function ScriptCell({ row, label, inScene, open, onOpen }: { row: EditorRow; label: string; inScene: boolean; open: boolean; onOpen: () => void }) {
+  const isScene = row.kind === ROW_KIND.SCENE;
+  if (!inScene) return <div className={CELL} />;
+  const sceneLink = isScene ? readSceneLink(row.scriptLink) : null;
+  const summary = isScene ? null : linkSummary(readShotLink(row.scriptLink));
+  let text: React.ReactNode;
+  let ariaLabel: string;
+  if (isScene) {
+    const heading = sceneLink && displayHeading(sceneLink.heading);
+    text = heading ? <span className="truncate">{heading}</span> : <span className="text-muted">Choose script scene</span>;
+    ariaLabel = heading ? `Scene ${label}'s script scene: ${heading}` : `Choose the script scene for scene ${label}`;
+  } else if (summary) {
+    text = (
+      <>
+        {summary.broken > 0 && <span className="shrink-0 text-red-300" title="Needs re-linking">⚠</span>}
+        <span className="min-w-0 truncate">{summary.first}</span>
+        {summary.more > 0 && <span className="shrink-0 text-xs text-muted">+{summary.more} more</span>}
+      </>
+    );
+    ariaLabel = `Shot ${label}'s script lines: ${summary.first}${summary.more ? ` and ${summary.more} more` : ""}${summary.broken ? ", needs re-linking" : ""}`;
+  } else {
+    text = <span className="text-muted opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100">Link to script</span>;
+    ariaLabel = `Link shot ${label} to the script`;
+  }
+  return (
+    <div className={CELL}>
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-expanded={open}
+        className={`flex h-full w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-foreground/10 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-foreground/70 ${open ? "bg-foreground/15" : ""}`}
+        onClick={onOpen}
+      >
+        <svg aria-hidden viewBox="0 0 16 16" className={`h-3.5 w-3.5 shrink-0 fill-none stroke-current ${summary || sceneLink ? "" : "opacity-50"}`} strokeWidth={1.25}>
+          <path d="M4 1.5h5l3.5 3.5v9.5h-8.5z M9 1.5v3.5h3.5" strokeLinejoin="round" />
+        </svg>
+        {text}
+      </button>
     </div>
   );
 }
 
 function SheetRow({
+  grid,
+  scriptCell,
   row,
   label,
   autoFocus,
@@ -1001,6 +1235,8 @@ function SheetRow({
   onGripKeyDown,
   onDelete,
 }: {
+  grid: string;
+  scriptCell: React.ReactNode;
   row: EditorRow;
   label: string;
   autoFocus: boolean;
@@ -1036,7 +1272,7 @@ function SheetRow({
   }
 
   return (
-    <div ref={rowRef} className={`group/row ${GRID} text-sm ${isScene ? "bg-scene font-medium" : ""} ${lifted ? "opacity-40" : ""}`}>
+    <div ref={rowRef} className={`group/row ${grid} text-sm ${isScene ? "bg-scene font-medium" : ""} ${lifted ? "opacity-40" : ""}`}>
       <div className={`${CELL} relative flex items-center gap-0.5 px-1`}>
         <button
           ref={gripRef}
@@ -1154,6 +1390,7 @@ function SheetRow({
           )}
         </div>
       ))}
+      {scriptCell}
     </div>
   );
 }

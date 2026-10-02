@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 // The home page doubles as a friendly user guide: what ShotListr does and how to use each part.
 // Keep it in step with the real features (see README.md / CLAUDE.md) when they change.
 
-type IconName = "film" | "sparkles" | "hash" | "rows" | "people" | "save" | "download" | "keyboard";
+type IconName = "film" | "sparkles" | "hash" | "rows" | "people" | "save" | "download" | "keyboard" | "link";
 
 /** Simple line icons (inline so the page needs no icon library). */
 function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: string }) {
@@ -18,6 +18,7 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
     save: <path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" />,
     download: <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14" />,
     keyboard: <path d="M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M7 14h10" />,
+    link: <path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />,
   };
   return (
     <svg aria-hidden viewBox="0 0 24 24" className={`${className} fill-none stroke-current`} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
@@ -88,6 +89,16 @@ const FEATURES: { icon: IconName; title: string; points: React.ReactNode[] }[] =
     ],
   },
   {
+    icon: "link",
+    title: "Link shots to the script",
+    points: [
+      "Click a shot's Script cell to open its scene's text beside the sheet.",
+      "Click the paragraphs that shot covers (shift-click for a run) and link them — as many sections as you need.",
+      "Every shot's lines are highlighted and labelled, so you can see what no shot covers yet.",
+      "New draft? Links are found again by their text; any that moved too much are marked ⚠ to re-link.",
+    ],
+  },
+  {
     icon: "people",
     title: "Character list",
     points: [
@@ -111,7 +122,7 @@ const FEATURES: { icon: IconName; title: string; points: React.ReactNode[] }[] =
     title: "Download a spreadsheet",
     points: [
       "Download gives you a clean, black-and-white Excel file ready to print or share.",
-      "One header row, scenes in bold, and a second sheet with your character list.",
+      "One header row, scenes in bold, plus sheets with your character list and each shot's script lines.",
       "Click the script's name at the top of a shotlist to download the original file.",
     ],
   },

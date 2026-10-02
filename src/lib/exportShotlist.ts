@@ -2,7 +2,8 @@
 // loaded when the user actually exports.
 
 import { ROW_KIND } from "./constants";
-import { exportTable, type RowData } from "./rows";
+import { exportTable, rowLabels, type RowData } from "./rows";
+import { scriptLinksTable } from "./scriptLinks";
 
 const BLACK = { argb: "FF000000" };
 const BORDER = { style: "thin" as const, color: BLACK };
@@ -46,6 +47,21 @@ export async function downloadShotlist(title: string, rows: readonly RowData[], 
       cell.border = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER };
     });
   });
+
+  // A third sheet with each shot's linked script lines, when the shotlist is linked to a script.
+  if (rows.some((r) => r.scriptLink)) {
+    const links = workbook.addWorksheet("Script links", { views: [{ state: "frozen", ySplit: 1 }] });
+    links.columns = [{ width: 9 }, { width: 32 }, { width: 70 }];
+    scriptLinksTable(rows, rowLabels(rows)).forEach((values, r) => {
+      const row = links.addRow(values);
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.numFmt = "@";
+        cell.font = { name: "Calibri", size: 11, bold: r === 0, color: BLACK };
+        cell.alignment = { vertical: "top", wrapText: true };
+        cell.border = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER };
+      });
+    });
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));

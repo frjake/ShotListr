@@ -15,8 +15,31 @@ export type ElementType = "heading" | "action" | "character" | "dialogue" | "par
 /** One paragraph of a script. `number` is a scene number printed with a heading (12, 12A, A12). */
 export type ScriptElement = { type: ElementType; text: string; number?: string };
 
-/** A scene found in a script, ready to become a scene row. */
-export type ScriptScene = { sceneNumber: string; intExt: string; location: string; time: string; characters: string[] };
+/**
+ * A scene found in a script, ready to become a scene row. `segment` is its index in the script's
+ * ScriptDoc and `heading` the heading as written, so the row can link back to its text.
+ */
+export type ScriptScene = {
+  sceneNumber: string;
+  intExt: string;
+  location: string;
+  time: string;
+  characters: string[];
+  segment: number;
+  heading: string;
+};
+
+/** A paragraph of script text (anything but a heading). */
+export type DocParagraph = { type: Exclude<ElementType, "heading">; text: string };
+
+/**
+ * One part of a script: a heading (INT./EXT. scene or INTERCUT-style subscene) and the paragraphs
+ * up to the next one. Lines up one-to-one with the scenes `buildScenes` returns.
+ */
+export type DocSegment = { heading: string; number?: string; paragraphs: DocParagraph[] };
+
+/** A script's text, split by heading — stored so a shot's scene can be shown and linked. */
+export type ScriptDoc = { segments: DocSegment[]; error?: string };
 
 /** INT., EXT., INT./EXT. (also EXT./INT., I/E) at the start of a heading; "INTERCUT" doesn't match. */
 const INT_EXT = /^(INT\.?\s*\/\s*EXT\.?|EXT\.?\s*\/\s*INT\.?|I\s*\/\s*E\.?|INT\.?|EXT\.?)(?=\s|$)\s*(.*)$/i;
@@ -114,10 +137,34 @@ export function characterName(cue: string): string {
   return titleCase(bare);
 }
 
-type Draft = { main: boolean; rawNumber?: string; intExt: string; location: string; time: string; characters: string[] };
+/**
+ * Splits script elements into segments: every INT./EXT. heading starts one, and so does any other
+ * heading once the first scene has begun (headings and text before the first scene are dropped).
+ */
+export function buildScriptDoc(elements: readonly ScriptElement[]): ScriptDoc {
+  const segments: DocSegment[] = [];
+  for (const el of elements) {
+    if (el.type === "heading") {
+      if (parseHeading(el.text) || segments.length) {
+        segments.push({ heading: el.text.trim(), ...(el.number ? { number: el.number } : {}), paragraphs: [] });
+      }
+    } else if (segments.length) {
+      segments[segments.length - 1].paragraphs.push({ type: el.type, text: el.text });
+    }
+  }
+  return { segments };
+}
+
+/** The elements a ScriptDoc was built from (so stored docs can be turned back into scenes). */
+export function docElements(doc: ScriptDoc): ScriptElement[] {
+  return doc.segments.flatMap((s): ScriptElement[] => [
+    { type: "heading", text: s.heading, ...(s.number ? { number: s.number } : {}) },
+    ...s.paragraphs,
+  ]);
+}
 
 /**
- * Scenes from script elements:
+ * Scenes from script elements (one per ScriptDoc segment):
  *  - every INT./EXT. heading starts a scene;
  *  - other headings (INTERCUT, FLASHBACK…) become subscenes of the scene they're in, with the
  *    heading as the Location; any before the first scene are ignored;
@@ -127,18 +174,22 @@ type Draft = { main: boolean; rawNumber?: string; intExt: string; location: stri
  *    order; otherwise they're numbered 1, 2, 3…
  */
 export function buildScenes(elements: readonly ScriptElement[]): ScriptScene[] {
-  const drafts: Draft[] = [];
-  for (const el of elements) {
-    if (el.type === "heading") {
-      const parsed = parseHeading(el.text);
-      if (parsed) drafts.push({ main: true, rawNumber: el.number, ...parsed, characters: [] });
-      else if (drafts.length) drafts.push({ main: false, intExt: "", location: el.text.trim(), time: "", characters: [] });
-    } else if (el.type === "character" && drafts.length) {
-      const name = characterName(el.text);
-      const scene = drafts[drafts.length - 1];
-      if (name && !scene.characters.some((c) => c.toLowerCase() === name.toLowerCase())) scene.characters.push(name);
+  return scenesFromDoc(buildScriptDoc(elements));
+}
+
+export function scenesFromDoc(doc: ScriptDoc): ScriptScene[] {
+  const drafts = doc.segments.map((seg) => {
+    const parsed = parseHeading(seg.heading);
+    const characters: string[] = [];
+    for (const p of seg.paragraphs) {
+      if (p.type !== "character") continue;
+      const name = characterName(p.text);
+      if (name && !characters.some((c) => c.toLowerCase() === name.toLowerCase())) characters.push(name);
     }
-  }
+    return parsed
+      ? { main: true, rawNumber: seg.number, ...parsed, characters }
+      : { main: false, rawNumber: undefined, intExt: "", location: seg.heading, time: "", characters };
+  });
 
   // Numbers for the INT./EXT. scenes: the script's, if complete and increasing; else 1, 2, 3…
   const mains = drafts.filter((d) => d.main);
@@ -163,5 +214,20 @@ export function buildScenes(elements: readonly ScriptElement[]): ScriptScene[] {
     location: titleCase(d.location, { minorWords: true }),
     time: titleCase(d.time, { minorWords: true, times: true }),
     characters: d.characters,
+    segment: i,
+    heading: doc.segments[i].heading,
   }));
+}
+
+/**
+ * A script heading the way the sheet writes it: Int./Ext. in capitals, Location and Time in title
+ * case, as autofill fills them — "INT. MOM'S KITCHEN - NIGHT" → "INT. Mom's Kitchen - Night".
+ * Other headings (INTERCUT…) are title-cased whole.
+ */
+export function displayHeading(heading: string): string {
+  const parsed = parseHeading(heading);
+  if (!parsed) return titleCase(heading.trim(), { minorWords: true });
+  const location = titleCase(parsed.location, { minorWords: true });
+  const time = titleCase(parsed.time, { minorWords: true, times: true });
+  return [parsed.intExt, location].filter(Boolean).join(" ") + (time ? ` - ${time}` : "");
 }

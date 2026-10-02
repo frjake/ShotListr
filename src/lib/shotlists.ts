@@ -12,6 +12,8 @@ const cell = z.string().trim().max(1000, "A cell can hold at most 1000 character
 const rowSchema = z.object({
   kind: z.enum([ROW_KIND.SCENE, ROW_KIND.SHOT]),
   ...(Object.fromEntries(ROW_FIELDS.map((f) => [f, cell])) as Record<RowField, typeof cell>),
+  // JSON link to the script's text (see scriptLinks.ts); can hold a few quoted paragraphs.
+  scriptLink: z.string().max(200_000, "A shot's script link is too long"),
 });
 
 export const shotlistSchema = z.object({
@@ -52,7 +54,7 @@ export function getOwnedShotlist(id: string, userId: string) {
     where: { id, userId },
     include: {
       rows: { orderBy: { position: "asc" } },
-      script: { select: { fileName: true, size: true } }, // never the bytes
+      script: { select: { fileName: true, size: true, version: true } }, // never the bytes
       characters: { orderBy: { position: "asc" }, select: { name: true } },
     },
   });

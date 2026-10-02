@@ -5,7 +5,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getOwnedShotlist, readScriptFile, shotlistSchema, toRowRecords } from "@/lib/shotlists";
 import type { ScriptInfo } from "@/lib/scripts";
-import { parseScript, type ScriptScene } from "@/lib/scriptParse";
+import type { ScriptDoc, ScriptScene } from "@/lib/scriptParse";
+import { readScriptText, storedScriptText } from "@/lib/scriptStore";
 
 export type SaveShotlistState = { error?: string; savedAt?: number; id?: string } | undefined;
 
@@ -48,8 +49,10 @@ export async function saveShotlist(_prev: SaveShotlistState, formData: FormData)
     return { savedAt: Date.now(), id };
   }
 
-  const script = await readScriptFile(formData.get("script"));
-  if (script && "error" in script) return { error: script.error };
+  const file = await readScriptFile(formData.get("script"));
+  if (file && "error" in file) return { error: file.error };
+  const text = file ? await readScriptText(file.fileName, file.data) : null;
+  const script = file && text ? { ...file, doc: JSON.stringify(text.doc), version: text.version } : null;
   const created = await prisma.shotlist.create({
     data: {
       title,
@@ -75,7 +78,15 @@ export async function deleteShotlist(id: string): Promise<{ error?: string }> {
   return {};
 }
 
-export type ScriptResult = { error?: string; script?: ScriptInfo };
+export type ScriptResult = {
+  error?: string;
+  script?: ScriptInfo;
+  /** The attached script's text and scenes (or why they couldn't be read: `parseError`). */
+  doc?: ScriptDoc;
+  scenes?: ScriptScene[];
+  version?: string;
+  parseError?: string;
+};
 
 /** Attaches a script file to one of the user's saved shotlists, replacing any it already has. */
 export async function attachScript(shotlistId: string, formData: FormData): Promise<ScriptResult> {
@@ -83,16 +94,24 @@ export async function attachScript(shotlistId: string, formData: FormData): Prom
   if (!user) return { error: "You've been logged out. Log in again to attach a script." };
   const owned = await prisma.shotlist.findFirst({ where: { id: shotlistId, userId: user.id }, select: { id: true } });
   if (!owned) return { error: "Shotlist not found" };
-  const script = await readScriptFile(formData.get("script"));
-  if (!script) return { error: "Choose a script file to attach." };
-  if ("error" in script) return { error: script.error };
+  const file = await readScriptFile(formData.get("script"));
+  if (!file) return { error: "Choose a script file to attach." };
+  if ("error" in file) return { error: file.error };
+  const text = await readScriptText(file.fileName, file.data);
+  const script = { ...file, doc: JSON.stringify(text.doc), version: text.version };
   await prisma.script.upsert({
     where: { shotlistId },
     create: { ...script, shotlistId },
     update: { ...script, uploadedAt: new Date() },
   });
   revalidatePath(`/shotlists/${shotlistId}`);
-  return { script: { fileName: script.fileName, size: script.size } };
+  return {
+    script: { fileName: file.fileName, size: file.size },
+    doc: text.doc,
+    scenes: text.scenes,
+    version: text.version,
+    parseError: text.error,
+  };
 }
 
 /** Removes the script from one of the user's shotlists. */
@@ -104,22 +123,27 @@ export async function removeScript(shotlistId: string): Promise<ScriptResult> {
   return {};
 }
 
-export type ParseScriptResult = { error?: string; scenes?: ScriptScene[] };
+/**
+ * A script's text and scenes. `error` alone means it couldn't be looked at (signed out, no script);
+ * `error` with a `doc` means the file was read but has no usable scenes (e.g. a scanned PDF).
+ */
+export type ParseScriptResult = { error?: string; scenes?: ScriptScene[]; doc?: ScriptDoc; version?: string };
 
-/** Reads scenes from a script file without storing it (a new shotlist's script, or one just picked). */
+/** Reads a script file without storing it (a new shotlist's script, before its first save). */
 export async function parseScriptFile(formData: FormData): Promise<ParseScriptResult> {
-  if (!(await getCurrentUser())) return { error: "You've been logged out. Log in again to autofill." };
+  if (!(await getCurrentUser())) return { error: "You've been logged out. Log in again to read the script." };
   const file = await readScriptFile(formData.get("script"));
   if (!file) return { error: "Choose a script file." };
   if ("error" in file) return { error: file.error };
-  return parseScript(file.fileName, file.data);
+  const { doc, scenes, version, error } = await readScriptText(file.fileName, file.data);
+  return { doc, scenes, version, error };
 }
 
-/** Reads scenes from the script stored with one of the user's shotlists. */
+/** The text and scenes of the script stored with one of the user's shotlists. */
 export async function parseStoredScript(shotlistId: string): Promise<ParseScriptResult> {
   const user = await getCurrentUser();
-  if (!user) return { error: "You've been logged out. Log in again to autofill." };
-  const script = await prisma.script.findFirst({ where: { shotlistId, shotlist: { userId: user.id } } });
-  if (!script) return { error: "This shotlist has no script attached." };
-  return parseScript(script.fileName, script.data);
+  if (!user) return { error: "You've been logged out. Log in again to read the script." };
+  const text = await storedScriptText(shotlistId, user.id);
+  if (!text) return { error: "This shotlist has no script attached." };
+  return { doc: text.doc, scenes: text.scenes, version: text.version, error: text.error };
 }

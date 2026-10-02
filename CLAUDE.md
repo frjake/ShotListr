@@ -11,8 +11,8 @@ See `README.md` for setup. Dev server runs on **port 8000**.
 - Prisma 7 with the `prisma-client` generator → output `src/generated/prisma` (gitignored; run
   `npx prisma generate`). SQLite via `@prisma/adapter-better-sqlite3`; the client singleton is
   `src/lib/db.ts`. Config lives in `prisma.config.ts` (URL comes from `.env` via dotenv), not in the schema.
-  Models: `User`, `Session`, `Shotlist`, `ShotlistRow`, `ShotlistCharacter` (ordered character list), `Script` (one
-  optional file per shotlist, bytes in SQLite).
+  Models: `User`, `Session`, `Shotlist`, `ShotlistRow` (+ `scriptLink` JSON), `ShotlistCharacter` (ordered character list),
+  `Script` (one optional file per shotlist: bytes, plus `doc` = its ScriptDoc text and `version` = hash of the bytes).
 - Node ≥ 22. `better-sqlite3` and Prisma have install scripts; npm may need
   `npm approve-scripts better-sqlite3 prisma @prisma/engines`.
 - Next 16 specifics: `params`/`searchParams` are Promises; `cookies()` is async; use the global
@@ -46,9 +46,15 @@ src/lib/scriptParse/  reads scripts into scenes. index.ts (server-only): parseSc
                       Format readers label paragraphs (heading/character/dialogue/…): fdx.ts (labelled XML, Number attr),
                       docx.ts (screenplay style names, else plain lines), pdf.ts (indents from the action margin, margin
                       scene numbers; classifyPdfLines/pageLines PURE), doc.ts (text only → lines.ts). lines.ts PURE:
-                      plain-text rules. scenes.ts PURE: buildScenes + parseHeading, mapScriptNumber, titleCase, characterName.
+                      plain-text rules. scenes.ts PURE: buildScriptDoc (segments: heading + paragraphs, one per scene), scenesFromDoc,
+                      docElements, buildScenes + parseHeading, displayHeading (sheet-style casing), mapScriptNumber, titleCase, characterName.
 src/lib/dragScroll.ts autoScrollStep: one frame of drag auto-scroll (edges clipped to the window; the page scrolls once
                       the element can't) — run per animation frame by the row drag and the character-list drag
+src/lib/scriptLinks.ts PURE: row ↔ script links (`scriptLink` JSON): SceneLink {v, scene, heading} / ShotLink {v, sections:
+                      [{scene, from, to, paras, broken?}]}; addSection (merges touching runs), removeSection, runsOf/formatRuns (selection → runs), formatParagraphs,
+                      linkSummary, coverageFor, reanchorRows (new draft → find again by heading/text, else broken),
+                      staleShotsUnder, scriptLinksTable (download sheet)
+src/lib/scriptStore.ts server-only: readScriptText (doc + scenes + version), storedScriptText (fills doc/version lazily)
 src/lib/autofill.ts   PURE: sheetIsEmpty, scriptSummary, scenesToRows (replace), mergeScenes (fill in), appendScenes (add to end)
 src/lib/characters.ts PURE: character list ↔ scene Characters cells: parseCharacters, addCharacters, charactersInRows,
                       scriptCharacters, sortCell/sortAllCells, moveCharacter, renameCharacter, removeCharacter, scenesWith,
@@ -59,6 +65,7 @@ src/components/       Nav (GuardedLinks: Home, New Shotlist, My Shotlists; Log i
                       resetKey — bumped when a GuardedLink targets the current page; /shotlists/new keys its editor
                       on it via NewShotlistEditor so "New Shotlist" from a new shotlist starts over),
                       LocalTime (date/time in the viewer's time zone), ScriptBar (script line at the top of the editor),
+                      ScriptPanel (side panel: a scene's text, coverage by shot, paragraph linking, scene picker),
                       CharacterList (collapsible list above the sheet: drag/↑↓ reorder, rename in place, add, remove,
                       + in a name's box → "Scene #" box to add them to scenes; stays open for more),
                       ComboboxInput (cells with suggestions — Int./Ext., Time, Framing, Angle: opening shows every
@@ -153,6 +160,21 @@ the last 404s unless you own it).
   one plus any names only found in cells (older shotlists build it from cells; not marked unsaved).
   Autofill: Replace starts the list over in order of first mention; Fill in / Add to the end keep
   it and append newcomers. Download adds a "Characters" sheet.
+- **Shot ↔ script links.** The script's text is stored as a `ScriptDoc` (segments that line up
+  one-to-one with autofill's scenes) plus a `version` hash. Rows keep links in `scriptLink` (JSON,
+  saved with Save, max 200k chars): autofill links each scene row to its segment; a shot links to
+  whole-paragraph runs (`sections`) of its scene's segment, keeping their text. While a script is
+  attached the sheet shows a Script column; its cells open `ScriptPanel` beside the sheet (fixed
+  full-screen on phones): click toggles a paragraph (selections stay until clicked again), shift-click / Shift+↑↓ add a run,
+  ↑↓+Space; "Link ¶2–4, ¶7 to 1B" (each run becomes a section); headings shown via `displayHeading` (INT. Title Case);
+  every shot's coverage is tinted + labelled; unlinked scenes (hand-added) pick a segment from a
+  searchable list ("Change scene" re-picks; that scene's shots are re-found via `staleShotsUnder`).
+  Links carry the script `version`: whenever the editor gets text of another version
+  (`adoptScriptText` — replace, re-attach, open) and when the edit page loads stale links (server,
+  before render; not marked unsaved), `reanchorRows` finds scenes by heading and sections by text;
+  misses are kept but `broken` (⚠ in the cell, "N shots need re-linking" on the script bar).
+  Removing the script hides the column but keeps links. Download adds a "Script links" sheet
+  (every shot, up to 4 lines + "…", "—" when unlinked) whenever any row has a link.
 - **Titles are required.** Save with a blank title opens `TitleDialog` instead (the form's
   `onSubmit` prevents the action); `shotlistSchema` also rejects blank titles.
 - **Unsaved changes** = the current title + rows JSON differs from the last saved snapshot

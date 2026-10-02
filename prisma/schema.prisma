@@ -71,6 +71,9 @@ model ShotlistRow {
   angle       String @default("")
   description String @default("")
 
+  // JSON link to the script's text (scene → its part of the script, shot → linked paragraphs).
+  scriptLink String @default("")
+
   shotlist Shotlist @relation(fields: [shotlistId], references: [id], onDelete: Cascade)
 
   @@unique([shotlistId, position])
@@ -84,6 +87,11 @@ model Script {
   fileName   String
   size       Int
   data       Bytes
+  // The script's text split by heading (ScriptDoc JSON), read once so scenes open instantly, and a
+  // hash of the file so links made against another draft can be told apart. Filled lazily for
+  // scripts uploaded before these existed.
+  doc        String   @default("")
+  version    String   @default("")
   uploadedAt DateTime @default(now())
 
   shotlist Shotlist @relation(fields: [shotlistId], references: [id], onDelete: Cascade)

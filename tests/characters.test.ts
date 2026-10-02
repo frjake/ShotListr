@@ -31,7 +31,7 @@ describe("parsing and building lists", () => {
     expect(charactersInRows([scene("1", "Ben, Ana"), shot("Zed"), scene("2", "Carol, ana")])).toEqual(["Ben", "Ana", "Carol"]);
   });
   it("orders a script's characters by first mention", () => {
-    const s = (characters: string[]) => ({ sceneNumber: "1", intExt: "", location: "", time: "", characters });
+    const s = (characters: string[]) => ({ sceneNumber: "1", intExt: "", location: "", time: "", characters, segment: 0, heading: "" });
     expect(scriptCharacters([s(["Ben", "Ana"]), s(["Carol", "Ben"]), s([])])).toEqual(["Ben", "Ana", "Carol"]);
   });
 });

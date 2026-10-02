@@ -7,11 +7,12 @@ import { readDoc } from "./doc";
 import { readDocx } from "./docx";
 import { readFdx } from "./fdx";
 import { readPdf } from "./pdf";
-import { buildScenes, type ScriptElement, type ScriptScene } from "./scenes";
+import { buildScriptDoc, scenesFromDoc, type ScriptDoc, type ScriptElement, type ScriptScene } from "./scenes";
 
-export type { ScriptScene } from "./scenes";
+export type { ScriptDoc, ScriptScene } from "./scenes";
 
-export async function parseScript(fileName: string, bytes: Uint8Array): Promise<{ scenes: ScriptScene[] } | { error: string }> {
+/** Reads a script into its text (split by heading) and the scenes autofill makes from it. */
+export async function parseScript(fileName: string, bytes: Uint8Array): Promise<{ scenes: ScriptScene[]; doc: ScriptDoc } | { error: string }> {
   const ext = fileName.slice(fileName.lastIndexOf(".")).toLowerCase();
   let elements: ScriptElement[];
   try {
@@ -23,7 +24,8 @@ export async function parseScript(fileName: string, bytes: Uint8Array): Promise<
   } catch {
     return { error: `Couldn't read “${fileName}”. The file may be damaged or not really a ${ext} file.` };
   }
-  const scenes = buildScenes(elements);
+  const doc = buildScriptDoc(elements);
+  const scenes = scenesFromDoc(doc);
   if (scenes.length === 0) {
     return {
       error:
@@ -32,5 +34,5 @@ export async function parseScript(fileName: string, bytes: Uint8Array): Promise<
           : `No scenes found in “${fileName}”. Scene headings need to start with INT. or EXT.`,
     };
   }
-  return { scenes };
+  return { scenes, doc };
 }

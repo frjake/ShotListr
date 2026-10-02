@@ -16,8 +16,12 @@ import {
 
 export const SCENE_FIELDS = ["sceneNumber", "intExt", "location", "time", "characters"] as const;
 export const SHOT_FIELDS = ["subject", "framing", "angle", "description"] as const;
-export type RowField = (typeof SCENE_FIELDS)[number] | (typeof SHOT_FIELDS)[number];
-export const ROW_FIELDS: readonly RowField[] = [...SCENE_FIELDS, ...SHOT_FIELDS];
+/**
+ * `scriptLink` (either kind): JSON linking the row to the attached script's text — see
+ * scriptLinks.ts. It isn't a column you type in.
+ */
+export type RowField = (typeof SCENE_FIELDS)[number] | (typeof SHOT_FIELDS)[number] | "scriptLink";
+export const ROW_FIELDS: readonly RowField[] = [...SCENE_FIELDS, ...SHOT_FIELDS, "scriptLink"];
 
 /** One spreadsheet row as edited and saved. Fields that don't belong to `kind` are "". */
 export type RowData = { kind: RowKind } & Record<RowField, string>;
@@ -30,11 +34,12 @@ export function emptyRow(kind: RowKind): RowData {
   return { kind, ...(Object.fromEntries(ROW_FIELDS.map((f) => [f, ""])) as Record<RowField, string>) };
 }
 
-/** Copy of `row` keeping only the fields that belong to its kind (others blanked). */
+/** Copy of `row` keeping only the fields that belong to its kind (others blanked), and its script link. */
 export function cleanRow(row: RowData): RowData {
   const keep = fieldsFor(row.kind);
   const clean = emptyRow(row.kind);
   for (const f of keep) clean[f] = row[f];
+  clean.scriptLink = row.scriptLink ?? "";
   return clean;
 }
 

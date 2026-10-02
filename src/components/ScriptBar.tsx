@@ -14,6 +14,7 @@ export function ScriptBar({
   pending,
   busy,
   error,
+  notice,
   onPick,
   onRemove,
   onAutofill,
@@ -23,6 +24,8 @@ export function ScriptBar({
   pending: File | null;
   busy: ScriptBusy | null;
   error: string | null;
+  /** A non-error heads-up, e.g. shots whose script links need re-linking. */
+  notice?: string | null;
   onPick: () => void;
   onRemove: () => void;
   onAutofill: () => void;
@@ -66,6 +69,7 @@ export function ScriptBar({
       )}
       {busy && <span className="text-muted">{BUSY_LABEL[busy]}</span>}
       {error && <p role="alert" className="w-full text-red-300">{error}</p>}
+      {notice && <p role="status" className="w-full text-amber-200">⚠ {notice}</p>}
     </div>
   );
 }

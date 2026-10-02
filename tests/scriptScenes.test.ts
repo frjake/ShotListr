@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildScenes, characterName, mapScriptNumber, parseHeading, titleCase, type ScriptElement } from "@/lib/scriptParse/scenes";
+import { buildScenes, buildScriptDoc, characterName, displayHeading, docElements, mapScriptNumber, parseHeading, scenesFromDoc, titleCase, type ScriptElement } from "@/lib/scriptParse/scenes";
 
 const h = (text: string, number?: string): ScriptElement => ({ type: "heading", text, number });
 const c = (text: string): ScriptElement => ({ type: "character", text });
@@ -21,6 +21,15 @@ describe("parseHeading", () => {
   it("isn't fooled by words starting with INT/EXT", () => {
     expect(parseHeading("INTERCUT - PHONE CALL")).toBeNull();
     expect(parseHeading("EXTREME CLOSE UP")).toBeNull();
+  });
+});
+
+describe("displayHeading", () => {
+  it("keeps Int./Ext. in capitals and title-cases the rest, like autofill", () => {
+    expect(displayHeading("INT. MOM'S KITCHEN - NIGHT")).toBe("INT. Mom's Kitchen - Night");
+    expect(displayHeading("int./ext. top of the stairs -- 7 a.m.")).toBe("INT./EXT. Top of the Stairs - 7 A.M.");
+    expect(displayHeading("EXT. GARDEN")).toBe("EXT. Garden");
+    expect(displayHeading("INTERCUT - PHONE CALL")).toBe("Intercut - Phone Call");
   });
 });
 
@@ -114,11 +123,11 @@ describe("buildScenes", () => {
 
   it("finds scenes, subscenes and speaking characters in order, in title case", () => {
     expect(buildScenes(script)).toEqual([
-      { sceneNumber: "1", intExt: "INT.", location: "Kitchen", time: "Day", characters: ["Ana", "Ben"] },
-      { sceneNumber: "2", intExt: "EXT.", location: "Garden", time: "Night", characters: ["Ben"] },
-      { sceneNumber: "2.1", intExt: "", location: "Intercut - Phone Call", time: "", characters: ["Carol"] },
-      { sceneNumber: "2.2", intExt: "", location: "Back to Scene", time: "", characters: ["Mrs. O'Brien"] },
-      { sceneNumber: "3", intExt: "INT./EXT.", location: "Car - Moving", time: "Continuous", characters: [] },
+      { sceneNumber: "1", intExt: "INT.", location: "Kitchen", time: "Day", characters: ["Ana", "Ben"], segment: 0, heading: "INT. KITCHEN - DAY" },
+      { sceneNumber: "2", intExt: "EXT.", location: "Garden", time: "Night", characters: ["Ben"], segment: 1, heading: "EXT. GARDEN - NIGHT" },
+      { sceneNumber: "2.1", intExt: "", location: "Intercut - Phone Call", time: "", characters: ["Carol"], segment: 2, heading: "INTERCUT - PHONE CALL" },
+      { sceneNumber: "2.2", intExt: "", location: "Back to Scene", time: "", characters: ["Mrs. O'Brien"], segment: 3, heading: "BACK TO SCENE" },
+      { sceneNumber: "3", intExt: "INT./EXT.", location: "Car - Moving", time: "Continuous", characters: [], segment: 4, heading: "I/E CAR - MOVING - CONTINUOUS" },
     ]);
   });
 
@@ -140,11 +149,42 @@ describe("buildScenes", () => {
 
   it("ignores other headings and cues before the first scene", () => {
     expect(buildScenes([h("MONTAGE"), c("NARRATOR"), h("INT. A - DAY"), c("ANA")])).toEqual([
-      { sceneNumber: "1", intExt: "INT.", location: "A", time: "Day", characters: ["Ana"] },
+      { sceneNumber: "1", intExt: "INT.", location: "A", time: "Day", characters: ["Ana"], segment: 0, heading: "INT. A - DAY" },
     ]);
   });
 
   it("returns nothing when there are no INT./EXT. headings", () => {
     expect(buildScenes([a("Just some text"), c("ANA"), d("Hi")])).toEqual([]);
+  });
+});
+
+describe("buildScriptDoc", () => {
+  const els: ScriptElement[] = [
+    { type: "transition", text: "FADE IN:" },
+    { type: "heading", text: "MONTAGE" },
+    { type: "heading", text: "INT. KITCHEN - DAY", number: "4" },
+    { type: "action", text: "Ana pours coffee." },
+    { type: "character", text: "ANA" },
+    { type: "dialogue", text: "Morning." },
+    { type: "heading", text: "INTERCUT - PHONE" },
+    { type: "character", text: "BEN (V.O.)" },
+    { type: "dialogue", text: "Hi." },
+  ];
+  it("splits the script into one segment per scene, dropping what comes before the first", () => {
+    expect(buildScriptDoc(els)).toEqual({
+      segments: [
+        { heading: "INT. KITCHEN - DAY", number: "4", paragraphs: [
+          { type: "action", text: "Ana pours coffee." }, { type: "character", text: "ANA" }, { type: "dialogue", text: "Morning." },
+        ] },
+        { heading: "INTERCUT - PHONE", paragraphs: [{ type: "character", text: "BEN (V.O.)" }, { type: "dialogue", text: "Hi." }] },
+      ],
+    });
+  });
+  it("lines segments up with scenes, and a stored doc gives the same scenes", () => {
+    const doc = buildScriptDoc(els);
+    const scenes = buildScenes(els);
+    expect(scenes.map((s) => [s.segment, s.heading])).toEqual([[0, "INT. KITCHEN - DAY"], [1, "INTERCUT - PHONE"]]);
+    expect(scenesFromDoc(doc)).toEqual(scenes);
+    expect(buildScenes(docElements(doc))).toEqual(scenes);
   });
 });
