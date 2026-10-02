@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getOwnedShotlist, readScriptFile, shotlistSchema, toRowRecords } from "@/lib/shotlists";
 import type { ScriptInfo } from "@/lib/scripts";
+import { parseScript, type ScriptScene } from "@/lib/scriptParse";
 
 export type SaveShotlistState = { error?: string; savedAt?: number; id?: string } | undefined;
 
@@ -90,4 +91,24 @@ export async function removeScript(shotlistId: string): Promise<ScriptResult> {
   await prisma.script.deleteMany({ where: { shotlistId, shotlist: { userId: user.id } } });
   revalidatePath(`/shotlists/${shotlistId}`);
   return {};
+}
+
+export type ParseScriptResult = { error?: string; scenes?: ScriptScene[] };
+
+/** Reads scenes from a script file without storing it (a new shotlist's script, or one just picked). */
+export async function parseScriptFile(formData: FormData): Promise<ParseScriptResult> {
+  if (!(await getCurrentUser())) return { error: "You've been logged out. Log in again to autofill." };
+  const file = await readScriptFile(formData.get("script"));
+  if (!file) return { error: "Choose a script file." };
+  if ("error" in file) return { error: file.error };
+  return parseScript(file.fileName, file.data);
+}
+
+/** Reads scenes from the script stored with one of the user's shotlists. */
+export async function parseStoredScript(shotlistId: string): Promise<ParseScriptResult> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "You've been logged out. Log in again to autofill." };
+  const script = await prisma.script.findFirst({ where: { shotlistId, shotlist: { userId: user.id } } });
+  if (!script) return { error: "This shotlist has no script attached." };
+  return parseScript(script.fileName, script.data);
 }

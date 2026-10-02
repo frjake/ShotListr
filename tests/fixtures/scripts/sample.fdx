@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<FinalDraft DocumentType="Script" Template="No" Version="5">
+  <Content>
+    <Paragraph Type="Transition"><Text>FADE IN:</Text></Paragraph>
+    <Paragraph Type="Scene Heading" Number="1"><Text>INT. </Text><Text>KITCHEN </Text><Text>- </Text><Text>DAY</Text></Paragraph>
+    <Paragraph Type="Action"><Text>Ana pours coffee. BEN (30s) shuffles in.</Text></Paragraph>
+    <Paragraph Type="Character"><Text>ANA</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>Morning.</Text></Paragraph>
+    <Paragraph Type="Character"><Text>BEN (O.S.)</Text></Paragraph>
+    <Paragraph Type="Parenthetical"><Text>(sleepy)</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>Hi.</Text></Paragraph>
+    <Paragraph Type="Character"><Text>ANA (CONT'D)</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>Coffee?</Text></Paragraph>
+    <Paragraph Type="Transition"><Text>CUT TO:</Text></Paragraph>
+    <Paragraph Type="Scene Heading" Number="2"><Text>EXT. </Text><Text>GARDEN </Text><Text>- </Text><Text>NIGHT</Text></Paragraph>
+    <Paragraph Type="Action"><Text>Wind in the trees.</Text></Paragraph>
+    <Paragraph Type="Character"><Text>BEN (V.O.)</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>Later that night, everything changed.</Text></Paragraph>
+    <Paragraph Type="Scene Heading"><Text>INTERCUT </Text><Text>- </Text><Text>PHONE </Text><Text>CALL</Text></Paragraph>
+    <Paragraph Type="Character"><Text>CAROL</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>Hello?</Text></Paragraph>
+    <Paragraph Type="Scene Heading"><Text>BACK </Text><Text>TO </Text><Text>SCENE</Text></Paragraph>
+    <Paragraph Type="Character"><Text>MRS. O'BRIEN</Text></Paragraph>
+    <Paragraph Type="Dialogue"><Text>Who was that?</Text></Paragraph>
+    <Paragraph Type="Scene Heading" Number="2A"><Text>INT./EXT. </Text><Text>CAR </Text><Text>- </Text><Text>MOVING </Text><Text>- </Text><Text>CONTINUOUS</Text></Paragraph>
+    <Paragraph Type="Action"><Text>Ana drives. Ben sleeps.</Text></Paragraph>
+    <Paragraph Type="Scene Heading" Number="3"><Text>EXT. </Text><Text>ROAD </Text><Text>- </Text><Text>1985</Text></Paragraph>
+    <Paragraph Type="Action"><Text>A truck passes.</Text></Paragraph>
+    <Paragraph Type="Transition"><Text>FADE OUT.</Text></Paragraph>
+  </Content>
+  <TitlePage>
+    <Content>
+      <Paragraph Type="Scene Heading"><Text>INT. TITLE PAGE - DAY</Text></Paragraph>
+      <Paragraph Type="Character"><Text>WRITTEN BY</Text></Paragraph>
+    </Content>
+  </TitlePage>
+</FinalDraft>

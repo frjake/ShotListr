@@ -1,9 +1,12 @@
 import { formatFileSize, type ScriptInfo } from "@/lib/scripts";
 
+export type ScriptBusy = "uploading" | "removing" | "reading";
+const BUSY_LABEL: Record<ScriptBusy, string> = { uploading: "Uploading…", removing: "Removing…", reading: "Reading script…" };
+
 /**
  * The script line at the top of the shotlist editor: the attached file (a download link once it's
- * stored) with Replace / Remove, or "Add script" when there's none. A new shotlist's script is only
- * held in the browser (`pending`) until the shotlist's first save.
+ * stored) with Autofill / Replace / Remove, or "Add script" when there's none. A new shotlist's
+ * script is only held in the browser (`pending`) until the shotlist's first save.
  */
 export function ScriptBar({
   shotlistId,
@@ -13,14 +16,16 @@ export function ScriptBar({
   error,
   onPick,
   onRemove,
+  onAutofill,
 }: {
   shotlistId?: string;
   script: ScriptInfo | null;
   pending: File | null;
-  busy: "uploading" | "removing" | null;
+  busy: ScriptBusy | null;
   error: string | null;
   onPick: () => void;
   onRemove: () => void;
+  onAutofill: () => void;
 }) {
   const current = pending ? { fileName: pending.name, size: pending.size } : script;
   const action = "font-medium text-muted underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50";
@@ -47,6 +52,9 @@ export function ScriptBar({
             {formatFileSize(current.size)}
             {pending && " · attached when you save"}
           </span>
+          <button type="button" className="btn-secondary px-3 py-1 text-sm" disabled={!!busy} onClick={onAutofill}>
+            Autofill from script
+          </button>
           <button type="button" className={action} disabled={!!busy} onClick={onPick}>Replace</button>
           <button type="button" className={action} disabled={!!busy} onClick={onRemove}>Remove</button>
         </>
@@ -56,7 +64,7 @@ export function ScriptBar({
           <button type="button" className="btn-secondary px-3 py-1 text-sm" disabled={!!busy} onClick={onPick}>Add script</button>
         </>
       )}
-      {busy && <span className="text-muted">{busy === "uploading" ? "Uploading…" : "Removing…"}</span>}
+      {busy && <span className="text-muted">{BUSY_LABEL[busy]}</span>}
       {error && <p role="alert" className="w-full text-red-300">{error}</p>}
     </div>
   );

@@ -41,7 +41,13 @@ src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, us
                       readScriptFile (form entry → null | { error } | { fileName, size, data })
 src/lib/scripts.ts    PURE: SCRIPT_EXTENSIONS (.doc .docx .pdf .fdx), MAX_SCRIPT_BYTES (20 MB), scriptProblem,
                       scriptContentType, formatFileSize
-src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist, attachScript, removeScript)
+src/lib/scriptParse/  reads scripts into scenes. index.ts (server-only): parseScript(fileName, bytes) → { scenes } | { error }.
+                      Format readers label paragraphs (heading/character/dialogue/…): fdx.ts (labelled XML, Number attr),
+                      docx.ts (screenplay style names, else plain lines), pdf.ts (indents from the action margin, margin
+                      scene numbers; classifyPdfLines/pageLines PURE), doc.ts (text only → lines.ts). lines.ts PURE:
+                      plain-text rules. scenes.ts PURE: buildScenes + parseHeading, mapScriptNumber, titleCase, characterName.
+src/lib/autofill.ts   PURE: sheetIsEmpty, scriptSummary, scenesToRows (replace), mergeScenes (fill in), appendScenes (add to end)
+src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist, attachScript, removeScript, parseScriptFile, parseStoredScript)
 src/components/       Nav (GuardedLinks: Home, New Shotlist, My Shotlists; Log in / Sign up, or @username + LogoutButton),
                       NavigationGuard (provider in the root layout, useNavigationGuard, GuardedLink, LogoutButton,
                       resetKey — bumped when a GuardedLink targets the current page; /shotlists/new keys its editor
@@ -104,7 +110,7 @@ the last 404s unless you own it).
   a download after saving uses the submitted form data (so a title from `TitleDialog` is used).
   Nothing downloads untitled: downloading without saving (no unsaved changes, or "Download without
   saving") first asks for a title via `TitleDialog`, sets it (as an unsaved change) and downloads.
-- **Scripts** are only stored and handed back — never parsed or converted. A new shotlist opens with
+- **Scripts** are stored and handed back unchanged; they're only read for autofill (never converted). A new shotlist opens with
   "attach a script?" (`start` dialog); its file is held in the browser (`pendingScript`, counts as
   unsaved) and sent with the first save (`saveShotlist` reads the `script` field on create only).
   A saved shotlist attaches/replaces/removes **immediately** (`attachScript` upserts, `removeScript`
@@ -112,6 +118,20 @@ the last 404s unless you own it).
   server (`scriptProblem`). Uploads go through Server Actions, so `next.config.ts` raises
   `serverActions.bodySizeLimit` to 25 MB — keep it above MAX_SCRIPT_BYTES. The download link uses
   the `download` attribute so it doesn't trigger the unsaved-changes warning.
+- **Autofill from scripts** (scenes only, never shots). Rules (all in `scriptParse/scenes.ts`, tested
+  per format against `tests/fixtures/scripts`, rebuilt by `generate.mjs`):
+  - every INT./EXT./I/E heading is a scene; Time is what follows the last " - " (any text), the rest
+    is Location — both in title case (`titleCase`: short words lowercase mid-part, A.M./P.M. kept). Other headings (INTERCUT, FLASHBACK, BACK TO SCENE…) become subscenes of the scene
+    above (heading text in Location); any before the first scene are ignored.
+  - script numbers are kept, letters mapped (12A → 12.1, A12 → 11.1) — but only if every scene has
+    one and they increase; otherwise 1, 2, 3…
+  - Characters = everyone with dialogue (V.O./O.S. included), extensions stripped, title case, in
+    order of first line.
+  Picking a script (new shotlist: automatically; existing: after upload) or the "Autofill from
+  script" button parses it on the server and shows `AutofillDialog`: Apply/Cancel on an empty sheet,
+  else Fill in (merge by number, empty cells only) / Replace everything / Add to the end (numbered
+  after the last scene). The result is an unsaved change. Unreadable files / no scenes → message in
+  the script bar, sheet untouched.
 - **Titles are required.** Save with a blank title opens `TitleDialog` instead (the form's
   `onSubmit` prevents the action); `shotlistSchema` also rejects blank titles.
 - **Unsaved changes** = the current title + rows JSON differs from the last saved snapshot

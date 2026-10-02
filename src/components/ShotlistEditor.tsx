@@ -3,12 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useActionState, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { attachScript, removeScript, saveShotlist } from "@/app/actions/shotlists";
+import { attachScript, parseScriptFile, parseStoredScript, removeScript, saveShotlist } from "@/app/actions/shotlists";
 import { ChoiceCard, ChoiceDialog, ConfirmDialog } from "@/components/ChoiceDialog";
 import { ComboboxInput } from "@/components/ComboboxInput";
 import { useNavigationGuard } from "@/components/NavigationGuard";
-import { ScriptBar } from "@/components/ScriptBar";
+import { ScriptBar, type ScriptBusy } from "@/components/ScriptBar";
+import { appendScenes, mergeScenes, scenesToRows, scriptSummary, sheetIsEmpty } from "@/lib/autofill";
 import { downloadShotlist } from "@/lib/exportShotlist";
+import type { ScriptScene } from "@/lib/scriptParse/scenes";
 import { MAX_SCRIPT_BYTES, SCRIPT_ACCEPT, formatFileSize, scriptProblem, type ScriptInfo } from "@/lib/scripts";
 import {
   ANGLE_OPTIONS,
@@ -82,6 +84,8 @@ type Pending =
   | { type: "start" }
   // "Are you sure?" before removing a stored script.
   | { type: "removeScript" }
+  // Scenes read from a script, waiting for the user to apply them (and choose how, if the sheet has data).
+  | { type: "autofill"; fileName: string; scenes: ScriptScene[] }
   // Leaving with unsaved changes: save first, leave anyway, or stay.
   | { type: "leave"; proceed: () => void };
 
@@ -119,7 +123,7 @@ export function ShotlistEditor({
   const [script, setScript] = useState<ScriptInfo | null>(initialScript);
   const [pendingScript, setPendingScript] = useState<File | null>(null);
   const pendingScriptRef = useRef<File | null>(null); // read by the save wrapper
-  const [scriptBusy, setScriptBusy] = useState<"uploading" | "removing" | null>(null);
+  const [scriptBusy, setScriptBusy] = useState<ScriptBusy | null>(null);
   const [scriptError, setScriptError] = useState<string | null>(null);
   const scriptInputEl = useRef<HTMLInputElement>(null);
   const [numberError, setNumberError] = useState<{ key: string; message: string } | null>(null);
@@ -375,23 +379,62 @@ export function ShotlistEditor({
     setPendingScript(file);
   }
 
-  /** Checks a picked file, then attaches it (saved shotlist) or holds it for the first save (new). */
+  /**
+   * Checks a picked file, then attaches it (saved shotlist) or holds it for the first save (new),
+   * and offers to autofill from it — which, for a shotlist just created with a script, is automatic.
+   */
   async function scriptChosen(file: File) {
     const problem = scriptProblem(file.name, file.size);
     if (problem) return setScriptError(problem);
-    if (!id) return setPending(file);
+    if (!id) {
+      setPending(file);
+      return autofill(file);
+    }
     setScriptBusy("uploading");
     try {
       const body = new FormData();
       body.set("script", file);
       const result = await attachScript(id, body);
-      if (result.script) setScript(result.script);
-      else setScriptError(result.error ?? "Couldn't attach the script. Try again.");
+      if (!result.script) return setScriptError(result.error ?? "Couldn't attach the script. Try again.");
+      setScript(result.script);
     } catch {
-      setScriptError("Couldn't upload the script. Try again.");
+      return setScriptError("Couldn't upload the script. Try again.");
     } finally {
       setScriptBusy(null);
     }
+    await autofill(file);
+  }
+
+  /** Reads scenes from a script (a picked file, or the stored one) and shows what was found. */
+  async function autofill(source: File | "stored") {
+    setScriptError(null);
+    setScriptBusy("reading");
+    try {
+      let result;
+      if (source === "stored") {
+        result = await parseStoredScript(id!);
+      } else {
+        const body = new FormData();
+        body.set("script", source);
+        result = await parseScriptFile(body);
+      }
+      if (!result.scenes) return setScriptError(result.error ?? "Couldn't read the script.");
+      setPendingChoice({ type: "autofill", fileName: source === "stored" ? script!.fileName : source.name, scenes: result.scenes });
+    } catch {
+      setScriptError("Couldn't read the script. Try again.");
+    } finally {
+      setScriptBusy(null);
+    }
+  }
+
+  /** Puts the script's scenes into the sheet (an unsaved change, like any edit). */
+  function applyAutofill(scenes: ScriptScene[], mode: "replace" | "merge" | "append") {
+    const create = (row: RowData): EditorRow => ({ ...row, key: `r${nextKey.current++}` });
+    const next =
+      mode === "merge" ? mergeScenes(rows, scenes, create) : mode === "append" ? appendScenes(rows, scenes, create) : scenesToRows(scenes).map(create);
+    setAnnouncement(`Autofilled ${scenes.length} scene${scenes.length === 1 ? "" : "s"} from the script`);
+    setRows(next);
+    closeDialog();
   }
 
   function requestRemoveScript() {
@@ -519,6 +562,7 @@ export function ShotlistEditor({
         error={pendingChoice?.type === "removeScript" ? null : scriptError}
         onPick={pickScript}
         onRemove={requestRemoveScript}
+        onAutofill={() => void autofill(pendingScript ?? "stored")}
       />
       <input
         ref={scriptInputEl}
@@ -668,6 +712,15 @@ export function ShotlistEditor({
             />
             <ChoiceCard title="Start without a script" detail="You can add one later from the top of the shotlist" onClick={closeDialog} />
           </ChoiceDialog>
+        )}
+        {pendingChoice?.type === "autofill" && (
+          <AutofillDialog
+            fileName={pendingChoice.fileName}
+            scenes={pendingChoice.scenes}
+            rows={rows}
+            onApply={(mode) => applyAutofill(pendingChoice.scenes, mode)}
+            onCancel={closeDialog}
+          />
         )}
         {pendingChoice?.type === "removeScript" && script && (
           <ConfirmDialog
@@ -1119,5 +1172,66 @@ function InsertZone({
         <button type="button" className={btn} onClick={() => onInsert(boundary, ROW_KIND.SHOT)}>Insert Shot</button>
       </div>
     </div>
+  );
+}
+
+const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * What autofill found, and how to apply it. On an empty sheet: Apply / Cancel. With data already
+ * in the sheet: fill in (merge), replace everything, or add to the end.
+ */
+function AutofillDialog({
+  fileName,
+  scenes,
+  rows,
+  onApply,
+  onCancel,
+}: {
+  fileName: string;
+  scenes: ScriptScene[];
+  rows: readonly RowData[];
+  onApply: (mode: "replace" | "merge" | "append") => void;
+  onCancel: () => void;
+}) {
+  const found = scriptSummary(scenes);
+  const summary = `Found ${count(found.scenes, "scene")} and ${count(found.characters, "speaking character")}.`;
+  const title = `Autofill from “${fileName}”`;
+
+  if (sheetIsEmpty(rows)) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        <p className="text-sm text-muted">{summary} They&apos;ll be added as scenes; you can edit them before saving.</p>
+        <div className="flex gap-2">
+          <button type="button" className="btn-primary flex-1" onClick={() => onApply("replace")}>Apply</button>
+          <button type="button" className="btn-secondary flex-1" onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  const sceneRows = rows.filter((r) => r.kind === ROW_KIND.SCENE);
+  const shotCount = rows.length - sceneRows.length;
+  const lastTop = Math.max(0, ...sceneRows.map((r) => Number(r.sceneNumber.split(".")[0])));
+  return (
+    <ChoiceDialog title={title} body={`${summary} This shotlist already has data. How should the script's scenes be added?`} onCancel={onCancel}>
+      <ChoiceCard
+        autoFocus
+        title="Fill in from the script"
+        detail="Matches scenes by number, fills only empty cells and adds missing scenes. Nothing you've typed changes."
+        onClick={() => onApply("merge")}
+      />
+      <ChoiceCard
+        title="Replace everything"
+        detail={`Discards the current ${count(sceneRows.length, "scene")} and ${count(shotCount, "shot")}`}
+        onClick={() => onApply("replace")}
+      />
+      <ChoiceCard
+        title="Add to the end"
+        detail={`Adds the script's scenes after everything else, numbered from ${lastTop + 1}`}
+        onClick={() => onApply("append")}
+      />
+    </ChoiceDialog>
   );
 }

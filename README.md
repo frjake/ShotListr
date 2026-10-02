@@ -48,8 +48,16 @@ email creates a 30-day session stored in the database and referenced by an HttpO
 A new shotlist starts by asking whether to attach a script (.doc, .docx, .pdf or .fdx, up to
 20 MB). The script's file name appears at the top of the shotlist — click it to download the file,
 or use Replace / Remove; without one there's an "Add script" button. On a saved shotlist these take
-effect right away; a new shotlist's script is stored when it's first saved. Files are only stored,
-never read or converted.
+effect right away; a new shotlist's script is stored when it's first saved.
+
+**Autofill from script** reads the script's scenes into the shotlist: each INT./EXT. heading
+becomes a scene (Int./Ext., Location, Time — the last two in title case, e.g. "Top of the
+Stairs", "Dawn, 5 A.M.") with the characters who speak in it; headings like
+INTERCUT or FLASHBACK become subscenes; the script's scene numbers are kept (12A → 12.1). A new
+shotlist created with a script autofills straight away; otherwise use the button (adding or
+replacing a script offers it too). If the shotlist already has data you choose to fill in empty
+cells, replace everything, or add the scenes to the end. Works best with .fdx, then .docx / .pdf
+from screenwriting apps; .doc is text-only, and scanned PDFs can't be read.
 
 **Download** (next to Save) exports the shotlist as a black-and-white Excel file (.xlsx) with one
 combined header row (Scene #/Shot #, Int./Ext./Subject, …); scene rows are bold. If there are
