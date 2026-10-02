@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 // The home page doubles as a friendly user guide: what ShotListr does and how to use each part.
 // Keep it in step with the real features (see README.md / CLAUDE.md) when they change.
 
-type IconName = "film" | "sparkles" | "hash" | "rows" | "people" | "save" | "download" | "keyboard" | "link";
+type IconName = "film" | "sparkles" | "hash" | "rows" | "people" | "save" | "keyboard" | "link";
 
 /** Simple line icons (inline so the page needs no icon library). */
 function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: string }) {
@@ -16,7 +16,6 @@ function Icon({ name, className = "h-5 w-5" }: { name: IconName; className?: str
     rows: <path d="M4 6h16M4 12h16M4 18h10M18 16v4M16 18h4" />,
     people: <path d="M9 11a3 3 0 100-6 3 3 0 000 6zM3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 5.5a3 3 0 010 5.5M18 14.5c1.8.8 3 2.6 3 4.7" />,
     save: <path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" />,
-    download: <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14" />,
     keyboard: <path d="M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M7 14h10" />,
     link: <path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />,
   };
@@ -93,7 +92,7 @@ const FEATURES: { icon: IconName; title: string; points: React.ReactNode[] }[] =
     title: "Link shots to the script",
     points: [
       "Click a shot's Script cell to open its scene's text beside the sheet.",
-      "Click the paragraphs that shot covers (shift-click for a run) and link them — as many sections as you need.",
+      "Click the paragraphs that shot covers (click again to unselect) and link them — as many sections as you need.",
       "Every shot's lines are highlighted and labelled, so you can see what no shot covers yet.",
       "New draft? Links are found again by their text; any that moved too much are marked ⚠ to re-link.",
     ],
@@ -110,19 +109,11 @@ const FEATURES: { icon: IconName; title: string; points: React.ReactNode[] }[] =
   },
   {
     icon: "save",
-    title: "Save and come back",
+    title: "Save, download and share",
     points: [
-      "Save keeps everything — the sheet, the character list and the script — under My Shotlists.",
-      "My Shotlists shows your shotlists as cards, most recently saved first.",
+      "Save keeps everything — the sheet, the character list, the script and its links — under My Shotlists, newest first.",
       "Leaving with unsaved changes? ShotListr asks whether to save first.",
-    ],
-  },
-  {
-    icon: "download",
-    title: "Download a spreadsheet",
-    points: [
-      "Download gives you a clean, black-and-white Excel file ready to print or share.",
-      "One header row, scenes in bold, plus sheets with your character list and each shot's script lines.",
+      "Download gives your crew a clean, black-and-white Excel file, with sheets for the character list and each shot's script lines.",
       "Click the script's name at the top of a shotlist to download the original file.",
     ],
   },
@@ -152,7 +143,7 @@ export default async function Home() {
       {/* Hero */}
       <section className="relative overflow-hidden">
         <div aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top_left,#7a1a1a_0%,transparent_55%),radial-gradient(ellipse_at_bottom_right,#2e0000_0%,transparent_60%)]" />
-        <div className="mx-auto grid w-full max-w-6xl items-center gap-12 px-4 py-14 sm:py-20 lg:grid-cols-[1fr_1.15fr] xl:gap-x-32">
+        <div className="mx-auto grid w-full max-w-6xl items-center gap-12 px-4 py-14 sm:py-20 lg:grid-cols-[1fr_1.25fr] xl:gap-x-28">
           <div className="flex flex-col gap-6">
             <span className="inline-flex w-fit items-center gap-2 rounded-full border border-line bg-surface/70 px-3 py-1 text-xs font-medium text-muted">
               <Icon name="film" className="h-4 w-4" /> Shot lists for filmmakers
