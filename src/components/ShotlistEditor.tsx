@@ -3,11 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useActionState, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { saveShotlist } from "@/app/actions/shotlists";
-import { ChoiceCard, ChoiceDialog } from "@/components/ChoiceDialog";
+import { attachScript, removeScript, saveShotlist } from "@/app/actions/shotlists";
+import { ChoiceCard, ChoiceDialog, ConfirmDialog } from "@/components/ChoiceDialog";
 import { ComboboxInput } from "@/components/ComboboxInput";
 import { useNavigationGuard } from "@/components/NavigationGuard";
+import { ScriptBar } from "@/components/ScriptBar";
 import { downloadShotlist } from "@/lib/exportShotlist";
+import { MAX_SCRIPT_BYTES, SCRIPT_ACCEPT, formatFileSize, scriptProblem, type ScriptInfo } from "@/lib/scripts";
 import {
   ANGLE_OPTIONS,
   FRAMING_OPTIONS,
@@ -76,6 +78,10 @@ type Pending =
   | { type: "download" }
   // Downloading without a title (and not saving): name it first, then download.
   | { type: "downloadTitle" }
+  // A new shotlist starts by asking whether to attach a script.
+  | { type: "start" }
+  // "Are you sure?" before removing a stored script.
+  | { type: "removeScript" }
   // Leaving with unsaved changes: save first, leave anyway, or stay.
   | { type: "leave"; proceed: () => void };
 
@@ -93,18 +99,29 @@ export function ShotlistEditor({
   heading,
   initialTitle,
   initialRows,
+  initialScript = null,
 }: {
   id?: string;
   heading: string;
   initialTitle: string;
   initialRows: RowData[];
+  initialScript?: ScriptInfo | null;
 }) {
   const [title, setTitle] = useState(initialTitle);
   const [rows, setRows] = useState<EditorRow[]>(() => initialRows.map((r, i) => ({ ...r, key: `r${i}` })));
   const nextKey = useRef(initialRows.length);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [pendingChoice, setPendingChoice] = useState<Pending | null>(null);
+  // A new shotlist (no id) opens by asking whether to start with a script.
+  const [pendingChoice, setPendingChoice] = useState<Pending | null>(id ? null : { type: "start" });
+  // The stored script, and for a new shotlist the file picked to attach on its first save.
+  // Saved shotlists attach and remove scripts immediately, outside Save.
+  const [script, setScript] = useState<ScriptInfo | null>(initialScript);
+  const [pendingScript, setPendingScript] = useState<File | null>(null);
+  const pendingScriptRef = useRef<File | null>(null); // read by the save wrapper
+  const [scriptBusy, setScriptBusy] = useState<"uploading" | "removing" | null>(null);
+  const [scriptError, setScriptError] = useState<string | null>(null);
+  const scriptInputEl = useRef<HTMLInputElement>(null);
   const [numberError, setNumberError] = useState<{ key: string; message: string } | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -121,6 +138,7 @@ export function ShotlistEditor({
   const [state, action, pending] = useActionState(async (prev: EditorSaveState, formData: FormData): Promise<EditorSaveState> => {
     const then = afterSave.current;
     afterSave.current = null;
+    if (!id && pendingScriptRef.current) formData.set("script", pendingScriptRef.current);
     const result = await saveShotlist(undefined, formData);
     if (!result?.savedAt || !result.id) return { snapshot: prev?.snapshot, error: result?.error ?? "Couldn't save the shotlist" };
     if (then?.type === "leave") {
@@ -329,7 +347,7 @@ export function ShotlistEditor({
   }
 
   const payload = JSON.stringify(rows.map(cleanRow));
-  const unsaved = snapshotOf(title, payload) !== (state?.snapshot ?? initialSnapshot);
+  const unsaved = snapshotOf(title, payload) !== (state?.snapshot ?? initialSnapshot) || (!id && pendingScript !== null);
 
   // While there are unsaved changes, in-app navigation asks first (nav links, Log out) and the
   // browser warns before closing or reloading the tab (it doesn't allow a custom prompt there).
@@ -344,6 +362,57 @@ export function ShotlistEditor({
       window.removeEventListener("beforeunload", warn);
     };
   }, [unsaved, setGuard, requestLeave]);
+
+  // ----- Script -----
+
+  function pickScript() {
+    setScriptError(null);
+    scriptInputEl.current?.click();
+  }
+
+  function setPending(file: File | null) {
+    pendingScriptRef.current = file;
+    setPendingScript(file);
+  }
+
+  /** Checks a picked file, then attaches it (saved shotlist) or holds it for the first save (new). */
+  async function scriptChosen(file: File) {
+    const problem = scriptProblem(file.name, file.size);
+    if (problem) return setScriptError(problem);
+    if (!id) return setPending(file);
+    setScriptBusy("uploading");
+    try {
+      const body = new FormData();
+      body.set("script", file);
+      const result = await attachScript(id, body);
+      if (result.script) setScript(result.script);
+      else setScriptError(result.error ?? "Couldn't attach the script. Try again.");
+    } catch {
+      setScriptError("Couldn't upload the script. Try again.");
+    } finally {
+      setScriptBusy(null);
+    }
+  }
+
+  function requestRemoveScript() {
+    setScriptError(null);
+    if (!id) setPending(null); // nothing stored yet
+    else setPendingChoice({ type: "removeScript" });
+  }
+
+  async function confirmRemoveScript() {
+    setScriptBusy("removing");
+    try {
+      const result = await removeScript(id!);
+      if (result.error) return setScriptError(result.error);
+      setScript(null);
+      closeDialog();
+    } catch {
+      setScriptError("Couldn't remove the script. Try again.");
+    } finally {
+      setScriptBusy(null);
+    }
+  }
 
   /** Builds and downloads an .xlsx of the given title and rows. */
   async function exportFile(fileTitle: string, fileRows: RowData[]) {
@@ -441,6 +510,27 @@ export function ShotlistEditor({
           </form>
         </div>
       </div>
+
+      <ScriptBar
+        shotlistId={id}
+        script={script}
+        pending={pendingScript}
+        busy={scriptBusy}
+        error={pendingChoice?.type === "removeScript" ? null : scriptError}
+        onPick={pickScript}
+        onRemove={requestRemoveScript}
+      />
+      <input
+        ref={scriptInputEl}
+        type="file"
+        accept={SCRIPT_ACCEPT}
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = ""; // so picking the same file again still fires
+          if (file) void scriptChosen(file);
+        }}
+      />
 
       <div>
         <label htmlFor="shotlist-title" className="label">Title</label>
@@ -562,6 +652,32 @@ export function ShotlistEditor({
             }`}
             submitLabel={pendingChoice.then?.type === "leave" ? "Save and leave" : pendingChoice.then?.type === "download" ? "Save and download" : "Save"}
             onSubmit={(newTitle) => saveWithTitle(newTitle, pendingChoice.then)}
+            onCancel={closeDialog}
+          />
+        )}
+        {pendingChoice?.type === "start" && (
+          <ChoiceDialog title="New shotlist" body="Would you like to attach a script? You can also add one later.">
+            <ChoiceCard
+              autoFocus
+              title="Upload a script"
+              detail={`A .doc, .docx, .pdf or .fdx file, up to ${formatFileSize(MAX_SCRIPT_BYTES)}`}
+              onClick={() => {
+                closeDialog();
+                pickScript();
+              }}
+            />
+            <ChoiceCard title="Start without a script" detail="You can add one later from the top of the shotlist" onClick={closeDialog} />
+          </ChoiceDialog>
+        )}
+        {pendingChoice?.type === "removeScript" && script && (
+          <ConfirmDialog
+            title={`Remove “${script.fileName}”?`}
+            body="The script file is removed from this shotlist. The shotlist itself isn't changed."
+            confirmLabel="Remove"
+            busyLabel="Removing…"
+            busy={scriptBusy === "removing"}
+            error={scriptError}
+            onConfirm={() => void confirmRemoveScript()}
             onCancel={closeDialog}
           />
         )}

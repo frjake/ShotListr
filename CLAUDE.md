@@ -11,7 +11,7 @@ See `README.md` for setup. Dev server runs on **port 8000**.
 - Prisma 7 with the `prisma-client` generator → output `src/generated/prisma` (gitignored; run
   `npx prisma generate`). SQLite via `@prisma/adapter-better-sqlite3`; the client singleton is
   `src/lib/db.ts`. Config lives in `prisma.config.ts` (URL comes from `.env` via dotenv), not in the schema.
-  Models: `User`, `Session`, `Shotlist`, `ShotlistRow`.
+  Models: `User`, `Session`, `Shotlist`, `ShotlistRow`, `Script` (one optional file per shotlist, bytes in SQLite).
 - Node ≥ 22. `better-sqlite3` and Prisma have install scripts; npm may need
   `npm approve-scripts better-sqlite3 prisma @prisma/engines`.
 - Next 16 specifics: `params`/`searchParams` are Promises; `cookies()` is async; use the global
@@ -37,16 +37,20 @@ src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emp
 src/lib/exportShotlist.ts client: downloadShotlist(title, rows) → black-and-white .xlsx via ExcelJS (dynamic
                       import, so it only loads on Download); numbers kept as text, scene rows bold
 src/lib/sceneNumbers.ts PURE: parse/format/compare scene numbers, nextSceneNumber, subsceneBetween, runRange, siblingRange, shiftRange
-src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, userId), toRowRecords
-src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist)
+src/lib/shotlists.ts  server-only: shotlistSchema (zod), getOwnedShotlist(id, userId; script name/size only), toRowRecords,
+                      readScriptFile (form entry → null | { error } | { fileName, size, data })
+src/lib/scripts.ts    PURE: SCRIPT_EXTENSIONS (.doc .docx .pdf .fdx), MAX_SCRIPT_BYTES (20 MB), scriptProblem,
+                      scriptContentType, formatFileSize
+src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist, attachScript, removeScript)
 src/components/       Nav (GuardedLinks: Home, New Shotlist, My Shotlists; Log in / Sign up, or @username + LogoutButton),
                       NavigationGuard (provider in the root layout, useNavigationGuard, GuardedLink, LogoutButton,
                       resetKey — bumped when a GuardedLink targets the current page; /shotlists/new keys its editor
                       on it via NewShotlistEditor so "New Shotlist" from a new shotlist starts over),
-                      LocalTime (date/time in the viewer's time zone),
+                      LocalTime (date/time in the viewer's time zone), ScriptBar (script line at the top of the editor),
                       ComboboxInput (cells with suggestions — Int./Ext., Time, Framing, Angle: opening shows every
                       option, only typing filters; not a native <datalist>, which always filters by the value),
-                      ChoiceDialog/ChoiceCard (the editor's pop-ups: one card per outcome, Back/Cancel),
+                      ChoiceDialog/ChoiceCard (one card per outcome, Back/Cancel) + ConfirmDialog (destructive action / Cancel,
+                      Cancel focused via the HTML `autofocus` attribute, which showModal honours),
 src/app/shotlists/ShotlistCards.tsx  My Shotlists grid + delete confirmation (Cancel / Delete buttons; deleteShotlist in a transition)
                       ShotlistEditor (spreadsheet: two sticky header rows, hover InsertZones, drag grip + editable
                       scene number + delete per row, SceneNumberDialog + DeleteSceneDialog (both built from
@@ -54,7 +58,8 @@ src/app/shotlists/ShotlistCards.tsx  My Shotlists grid + delete confirmation (Ca
 ```
 
 Routes: `/`, `/login`, `/register`, `/shotlists` (cards of your shotlists, most recently saved first —
-`updatedAt` changes only on save — each with a delete button that confirms first), `/shotlists/new`, `/shotlists/[shotlistId]` (all three require login;
+`updatedAt` changes only on save — each with a delete button that confirms first),
+`/shotlists/[shotlistId]/script` (GET: the owner's script as an attachment; 404 otherwise), `/shotlists/new`, `/shotlists/[shotlistId]` (all three require login;
 the last 404s unless you own it).
 
 ## Conventions
@@ -99,6 +104,14 @@ the last 404s unless you own it).
   a download after saving uses the submitted form data (so a title from `TitleDialog` is used).
   Nothing downloads untitled: downloading without saving (no unsaved changes, or "Download without
   saving") first asks for a title via `TitleDialog`, sets it (as an unsaved change) and downloads.
+- **Scripts** are only stored and handed back — never parsed or converted. A new shotlist opens with
+  "attach a script?" (`start` dialog); its file is held in the browser (`pendingScript`, counts as
+  unsaved) and sent with the first save (`saveShotlist` reads the `script` field on create only).
+  A saved shotlist attaches/replaces/removes **immediately** (`attachScript` upserts, `removeScript`
+  confirms first), outside Save. Allowed types/size are checked in the browser and again on the
+  server (`scriptProblem`). Uploads go through Server Actions, so `next.config.ts` raises
+  `serverActions.bodySizeLimit` to 25 MB — keep it above MAX_SCRIPT_BYTES. The download link uses
+  the `download` attribute so it doesn't trigger the unsaved-changes warning.
 - **Titles are required.** Save with a blank title opens `TitleDialog` instead (the form's
   `onSubmit` prevents the action); `shotlistSchema` also rejects blank titles.
 - **Unsaved changes** = the current title + rows JSON differs from the last saved snapshot

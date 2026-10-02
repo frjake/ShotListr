@@ -5,6 +5,7 @@ import { ROW_KIND } from "./constants";
 import { prisma } from "./db";
 import { cleanRow, ROW_FIELDS, type RowData, type RowField } from "./rows";
 import { compareSceneNumbers, parseSceneNumber, type SceneNumber } from "./sceneNumbers";
+import { scriptProblem } from "./scripts";
 
 const cell = z.string().trim().max(1000, "A cell can hold at most 1000 characters");
 
@@ -45,11 +46,27 @@ export const shotlistSchema = z.object({
 export function getOwnedShotlist(id: string, userId: string) {
   return prisma.shotlist.findFirst({
     where: { id, userId },
-    include: { rows: { orderBy: { position: "asc" } } },
+    include: {
+      rows: { orderBy: { position: "asc" } },
+      script: { select: { fileName: true, size: true } }, // never the bytes
+    },
   });
 }
 
 /** Rows ready for createMany: only each kind's own fields, plus their position. */
 export function toRowRecords(rows: RowData[]) {
   return rows.map((row, position) => ({ ...cleanRow(row), position }));
+}
+
+/**
+ * Reads an uploaded script from form data: null if none was sent, `{ error }` if it isn't allowed,
+ * otherwise what to store. The file is kept exactly as uploaded.
+ */
+export async function readScriptFile(entry: FormDataEntryValue | null) {
+  if (!(entry instanceof File)) return null;
+  // Browsers send just the name; strip any path some send anyway.
+  const fileName = entry.name.split(/[\\/]/).pop()!.trim().slice(0, 255);
+  const problem = scriptProblem(fileName, entry.size);
+  if (problem) return { error: problem };
+  return { fileName, size: entry.size, data: new Uint8Array(await entry.arrayBuffer()) };
 }

@@ -42,8 +42,9 @@ model Shotlist {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rows ShotlistRow[]
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows   ShotlistRow[]
+  script Script?
 
   @@index([userId])
 }
@@ -72,4 +73,17 @@ model ShotlistRow {
   shotlist Shotlist @relation(fields: [shotlistId], references: [id], onDelete: Cascade)
 
   @@unique([shotlistId, position])
+}
+
+// The script file attached to a shotlist (at most one). Stored as uploaded and never read or
+// converted; only served back for download. Kept out of Shotlist so the bytes load only when asked for.
+model Script {
+  id         String   @id @default(cuid())
+  shotlistId String   @unique
+  fileName   String
+  size       Int
+  data       Bytes
+  uploadedAt DateTime @default(now())
+
+  shotlist Shotlist @relation(fields: [shotlistId], references: [id], onDelete: Cascade)
 }

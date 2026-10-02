@@ -3,12 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getOwnedShotlist, shotlistSchema, toRowRecords } from "@/lib/shotlists";
+import { getOwnedShotlist, readScriptFile, shotlistSchema, toRowRecords } from "@/lib/shotlists";
+import type { ScriptInfo } from "@/lib/scripts";
 
 export type SaveShotlistState = { error?: string; savedAt?: number; id?: string } | undefined;
 
 /**
  * Creates a shotlist (no `id`) or replaces an existing one's title and rows, and returns its id.
+ * A new shotlist can include its script (`script` file field); existing ones use attachScript.
  * It doesn't redirect: the editor decides where to go next (the new shotlist's page, or wherever
  * the user was leaving to).
  */
@@ -40,8 +42,10 @@ export async function saveShotlist(_prev: SaveShotlistState, formData: FormData)
     return { savedAt: Date.now(), id };
   }
 
+  const script = await readScriptFile(formData.get("script"));
+  if (script && "error" in script) return { error: script.error };
   const created = await prisma.shotlist.create({
-    data: { title, userId: user.id, rows: { create: records } },
+    data: { title, userId: user.id, rows: { create: records }, script: script ? { create: script } : undefined },
   });
   revalidatePath("/", "layout");
   return { savedAt: Date.now(), id: created.id };
@@ -56,5 +60,34 @@ export async function deleteShotlist(id: string): Promise<{ error?: string }> {
   const { count } = await prisma.shotlist.deleteMany({ where: { id, userId: user.id } });
   if (count === 0) return { error: "Shotlist not found" };
   revalidatePath("/", "layout");
+  return {};
+}
+
+export type ScriptResult = { error?: string; script?: ScriptInfo };
+
+/** Attaches a script file to one of the user's saved shotlists, replacing any it already has. */
+export async function attachScript(shotlistId: string, formData: FormData): Promise<ScriptResult> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "You've been logged out. Log in again to attach a script." };
+  const owned = await prisma.shotlist.findFirst({ where: { id: shotlistId, userId: user.id }, select: { id: true } });
+  if (!owned) return { error: "Shotlist not found" };
+  const script = await readScriptFile(formData.get("script"));
+  if (!script) return { error: "Choose a script file to attach." };
+  if ("error" in script) return { error: script.error };
+  await prisma.script.upsert({
+    where: { shotlistId },
+    create: { ...script, shotlistId },
+    update: { ...script, uploadedAt: new Date() },
+  });
+  revalidatePath(`/shotlists/${shotlistId}`);
+  return { script: { fileName: script.fileName, size: script.size } };
+}
+
+/** Removes the script from one of the user's shotlists. */
+export async function removeScript(shotlistId: string): Promise<ScriptResult> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "You've been logged out. Log in again to remove the script." };
+  await prisma.script.deleteMany({ where: { shotlistId, shotlist: { userId: user.id } } });
+  revalidatePath(`/shotlists/${shotlistId}`);
   return {};
 }

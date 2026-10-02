@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { deleteShotlist } from "@/app/actions/shotlists";
+import { ConfirmDialog } from "@/components/ChoiceDialog";
 import { LocalTime } from "@/components/LocalTime";
 
 export type ShotlistSummary = { id: string; title: string; savedAt: string };
@@ -13,13 +14,9 @@ export function ShotlistCards({ shotlists }: { shotlists: ShotlistSummary[] }) {
   const [error, setError] = useState<string | null>(null);
   const [deleting, startDelete] = useTransition();
   const dialogEl = useRef<HTMLDialogElement>(null);
-  const cancelEl = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (!confirming || dialogEl.current?.open) return;
-    dialogEl.current?.showModal();
-    // showModal focuses the first button (Delete); start on Cancel so Enter by reflex doesn't delete.
-    cancelEl.current?.focus();
+    if (confirming && !dialogEl.current?.open) dialogEl.current?.showModal();
   }, [confirming]);
 
   function close() {
@@ -75,21 +72,16 @@ export function ShotlistCards({ shotlists }: { shotlists: ShotlistSummary[] }) {
         className="m-auto w-[min(34rem,calc(100%-2rem))] rounded-lg border border-line bg-surface p-5 text-foreground shadow-xl backdrop:bg-black/60"
       >
         {confirming && (
-          <div className="flex flex-col gap-4">
-            <h2 className="text-lg font-semibold">Delete “{confirming.title}”?</h2>
-            <p className="text-sm text-muted">
-              This permanently deletes the shotlist and all of its scenes and shots. It can&apos;t be undone.
-            </p>
-            {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
-            <div className="flex gap-2">
-              <button type="button" className="btn-danger flex-1" disabled={deleting} onClick={() => confirmDelete(confirming)}>
-                {deleting ? "Deleting…" : "Delete"}
-              </button>
-              <button ref={cancelEl} type="button" className="btn-secondary flex-1" onClick={close}>
-                Cancel
-              </button>
-            </div>
-          </div>
+          <ConfirmDialog
+            title={`Delete “${confirming.title}”?`}
+            body="This permanently deletes the shotlist and all of its scenes and shots. It can't be undone."
+            confirmLabel="Delete"
+            busyLabel="Deleting…"
+            busy={deleting}
+            error={error}
+            onConfirm={() => confirmDelete(confirming)}
+            onCancel={close}
+          />
         )}
       </dialog>
     </>

@@ -45,6 +45,12 @@ email creates a 30-day session stored in the database and referenced by an HttpO
 
 ## Shotlists
 
+A new shotlist starts by asking whether to attach a script (.doc, .docx, .pdf or .fdx, up to
+20 MB). The script's file name appears at the top of the shotlist — click it to download the file,
+or use Replace / Remove; without one there's an "Add script" button. On a saved shotlist these take
+effect right away; a new shotlist's script is stored when it's first saved. Files are only stored,
+never read or converted.
+
 **Download** (next to Save) exports the shotlist as a black-and-white Excel file (.xlsx) with one
 combined header row (Scene #/Shot #, Int./Ext./Subject, …); scene rows are bold. If there are
 unsaved changes you're asked whether to save first, and a shotlist without a title is named
