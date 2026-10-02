@@ -33,7 +33,7 @@ src/lib/auth.ts       server-only: bcrypt, DB sessions, cookie `shotlistr_sessio
 src/lib/constants.ts  SESSION_COOKIE, SESSION_TTL_MS (30 days), ROW_KIND, cell suggestion lists (INT_EXT/TIME/FRAMING/ANGLE_OPTIONS)
 src/lib/rows.ts       PURE (client-safe): RowData, SCENE_FIELDS/SHOT_FIELDS, emptyRow, cleanRow, rowLabels (12, 12A, 12.1A…)
                       reorder/delete: blockEnd, dropTargets, moveRows, stepTarget, deleteRows
-                      scene numbers: planSceneAt, shiftScenes, renumberScene, renumberAfterDelete
+                      scene numbers: planSceneAt, shiftScenes, renumberScene, renumberAfterDelete, sceneNudges
                       export: EXPORT_HEADERS, exportTable (one combined header: "Scene #/Shot #" etc.)
 src/lib/exportShotlist.ts client: downloadShotlist(title, rows) → black-and-white .xlsx via ExcelJS (dynamic
                       import, so it only loads on Download); numbers kept as text, scene rows bold
@@ -100,6 +100,8 @@ the last 404s unless you own it).
     12.x move) and subscenes move with their scene (`shiftRange`).
   - Typing a number (Enter/blur; Escape reverts) refuses invalid or existing numbers with an inline
     error, otherwise moves the scene and its shots to where the number belongs.
+  - ▲/▼ in the number box (and ↑/↓ keys there, when not mid-edit) step the last part by −1/+1 (▲ moves
+    up the sheet, so it subtracts), only into a gap (`sceneNudges`: valid, and still between the neighbouring scenes — never reorders).
   - Delete: if any later sibling exists (and no subscene keeps the number in use), the delete
     dialog also asks: leave a gap, renumber down until the gap, or renumber all later siblings
     (`renumberAfterDelete`). Until-the-gap is dropped when it would do nothing (next number free)

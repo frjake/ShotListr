@@ -11,6 +11,7 @@ import {
   moveRows,
   planSceneAt,
   renumberScene,
+  sceneNudges,
   rowLabels,
   shiftScenes,
   shotLetters,
@@ -264,5 +265,27 @@ describe("exportTable", () => {
       ["12A", "Ana", "CU", "Low angle", "Pours tea"],
       ["12.1", "", "", "", ""],
     ]);
+  });
+});
+
+describe("sceneNudges", () => {
+  const nudges = (...spec: string[]) => {
+    const rows = sheetOf(...spec);
+    const map = sceneNudges(rows);
+    return rows.map((r, i) => (r.kind === SCENE ? `${r.sceneNumber}:${map.get(i)!.lower ?? "-"}/${map.get(i)!.higher ?? "-"}` : "shot"));
+  };
+  it("steps by 1 only into a gap", () => {
+    expect(nudges("3", "5", "-", "8")).toEqual(["3:2/4", "5:4/6", "shot", "8:7/9"]);
+    expect(nudges("3", "4", "8")).toEqual(["3:2/-", "4:-/5", "8:7/9"]);
+  });
+  it("never goes to 0 or a .0 subscene", () => {
+    expect(nudges("1", "1.1", "1.3")).toEqual(["1:-/-", "1.1:-/1.2", "1.3:1.2/1.4"]);
+  });
+  it("doesn't step past a neighbouring subscene", () => {
+    expect(nudges("12", "12.1", "14")).toEqual(["12:11/-", "12.1:-/12.2", "14:13/15"]);
+    expect(nudges("12.2", "13")).toEqual(["12.2:12.1/12.3", "13:-/14"]);
+  });
+  it("lets a lone scene go either way", () => {
+    expect(nudges("-", "5")).toEqual(["shot", "5:4/6"]);
   });
 });

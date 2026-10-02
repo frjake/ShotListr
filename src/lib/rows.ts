@@ -239,3 +239,31 @@ export function exportTable(rows: readonly RowData[]): string[][] {
     ...rows.map((row, i) => [labels[i], ...fieldsFor(row.kind).filter((f) => f !== "sceneNumber").map((f) => row[f])]),
   ];
 }
+
+/**
+ * The numbers a scene can step to — last part −1 (`lower`, the ▲ arrow: up the sheet) or +1
+ * (`higher`, ▼) — or null when there's no gap that way.
+ */
+export type SceneNudge = { lower: string | null; higher: string | null };
+
+/**
+ * For each scene row (by index), the number one up and one down from its own, when that number is
+ * valid (12.0 and 0 aren't) and still sits between the scenes before and after it — so stepping
+ * never collides with or reorders another scene.
+ */
+export function sceneNudges(rows: readonly Numbered[]): Map<number, SceneNudge> {
+  const scenes = rows.flatMap((r, i) => (r.kind === ROW_KIND.SCENE ? [{ i, n: parseSceneNumber(r.sceneNumber)! }] : []));
+  const out = new Map<number, SceneNudge>();
+  scenes.forEach(({ i, n }, k) => {
+    const prev = scenes[k - 1]?.n ?? null;
+    const next = scenes[k + 1]?.n ?? null;
+    const step = (delta: 1 | -1) => {
+      const last = n[n.length - 1] + delta;
+      const candidate = [...n.slice(0, -1), last];
+      const fits = last > 0 && (!prev || compareSceneNumbers(prev, candidate) < 0) && (!next || compareSceneNumbers(candidate, next) < 0);
+      return fits ? formatSceneNumber(candidate) : null;
+    };
+    out.set(i, { lower: step(-1), higher: step(1) });
+  });
+  return out;
+}

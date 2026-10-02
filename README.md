@@ -81,7 +81,8 @@ below the last), left of the scene numbers; the Insert Scene / Insert Shot pop-u
 the table. A scene added at the end takes the next whole number. Anywhere else you choose:
 make it a subscene (12.1, 12.2, 12.1.1, 12.0.1…), or give it the next number and renumber the
 scenes after it either up to the first gap or all the way to the end.
-Shots are lettered within their scene: 12A, 12B, 12.1A. Click a scene number to type a different
+Shots are lettered within their scene: 12A, 12B, 12.1A. The ▲/▼ in a scene number (or ↑/↓ while
+it's focused) subtract/add 1 when there's a free number that way. Click a scene number to type a different
 one — it's refused if another scene has it, otherwise the scene (with its shots) moves into number
 order. Int./Ext., Time,
 Framing and Angle suggest standard values but accept anything. Save stores it to your account.

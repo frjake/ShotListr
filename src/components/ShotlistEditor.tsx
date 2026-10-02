@@ -45,6 +45,7 @@ import {
   moveRows,
   planSceneAt,
   renumberScene,
+  sceneNudges,
   rowLabels,
   shiftScenes,
   stepTarget,
@@ -52,6 +53,7 @@ import {
   type DeleteRenumbering,
   type RowField,
   type RunShift,
+  type SceneNudge,
   type ScenePlacement,
 } from "@/lib/rows";
 
@@ -203,6 +205,7 @@ export function ShotlistEditor({
 
   const kinds = rows.map((r) => r.kind);
   const labels = rowLabels(rows);
+  const nudges = sceneNudges(rows);
   const nounFor = (i: number) => (kinds[i] === ROW_KIND.SCENE ? "Scene" : "Shot");
   const withShots = (count: number) => (count > 1 ? ` and its ${count - 1} shot${count > 2 ? "s" : ""}` : "");
 
@@ -767,6 +770,11 @@ export function ShotlistEditor({
                 onChange={(field, value) => updateCell(row.key, field, value)}
                 onCellBlur={(field) => field === "characters" && charactersCellDone(row.key)}
                 onRenumber={(text, keepFocus) => renumber(i, text, keepFocus)}
+                nudge={nudges.get(i)}
+                onNudge={(dir, keepFocus) => {
+                  const target = nudges.get(i)?.[dir];
+                  if (target) renumber(i, target, keepFocus);
+                }}
                 onGripPointerDown={(e) => onGripPointerDown(e, i)}
                 onGripPointerMove={onGripPointerMove}
                 onGripPointerUp={onGripPointerUp}
@@ -969,6 +977,8 @@ function SheetRow({
   onChange,
   onCellBlur,
   onRenumber,
+  nudge,
+  onNudge,
   onGripPointerDown,
   onGripPointerMove,
   onGripPointerUp,
@@ -987,6 +997,9 @@ function SheetRow({
   onChange: (field: RowField, value: string) => void;
   onCellBlur: (field: RowField) => void;
   onRenumber: (text: string, keepFocus: boolean) => boolean;
+  /** The numbers ▲ (lower) and ▼ (higher) step to (null where there's no gap). */
+  nudge?: SceneNudge;
+  onNudge: (dir: keyof SceneNudge, keepFocus: boolean) => void;
   onGripPointerDown: React.PointerEventHandler<HTMLButtonElement>;
   onGripPointerMove: React.PointerEventHandler<HTMLButtonElement>;
   onGripPointerUp: React.PointerEventHandler<HTMLButtonElement>;
@@ -1027,27 +1040,59 @@ function SheetRow({
           </svg>
         </button>
         {isScene ? (
-          <input
-            // Remount when the number changes so the field shows the new value.
-            key={row.sceneNumber}
-            ref={numberRef}
-            defaultValue={row.sceneNumber}
-            aria-label={`Scene ${label} number`}
-            aria-invalid={numberError ? true : undefined}
-            title="Type a new scene number, then press Enter"
-            inputMode="decimal"
-            maxLength={40}
-            className="h-7 min-w-0 flex-1 rounded bg-transparent px-1 font-semibold tabular-nums hover:bg-foreground/10 focus:bg-background focus:outline-none focus:ring-2 focus:ring-foreground/70"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commitNumber(e.currentTarget, true);
-              } else if (e.key === "Escape") {
-                e.currentTarget.value = row.sceneNumber;
-              }
-            }}
-            onBlur={(e) => commitNumber(e.currentTarget, false)}
-          />
+          <div className="relative min-w-0 flex-1">
+            <input
+              // Remount when the number changes so the field shows the new value.
+              key={row.sceneNumber}
+              ref={numberRef}
+              defaultValue={row.sceneNumber}
+              aria-label={`Scene ${label} number`}
+              aria-invalid={numberError ? true : undefined}
+              title="Type a new scene number and press Enter, or use ↑ (−1) ↓ (+1) to step into a gap"
+              inputMode="decimal"
+              maxLength={40}
+              className="h-7 w-full rounded bg-transparent px-1 pr-4 font-semibold tabular-nums hover:bg-foreground/10 focus:bg-background focus:outline-none focus:ring-2 focus:ring-foreground/70"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitNumber(e.currentTarget, true);
+                } else if (e.key === "Escape") {
+                  e.currentTarget.value = row.sceneNumber;
+                } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && e.currentTarget.value === row.sceneNumber) {
+                  // Step into a gap (only when not mid-edit): ↑ moves up the sheet (−1), ↓ down (+1).
+                  const dir = e.key === "ArrowUp" ? "lower" : "higher";
+                  if (nudge?.[dir]) {
+                    e.preventDefault();
+                    onNudge(dir, true);
+                  }
+                }
+              }}
+              onBlur={(e) => commitNumber(e.currentTarget, false)}
+            />
+            {(nudge?.lower || nudge?.higher) && (
+              <div className={`absolute inset-y-0 right-0.5 flex flex-col justify-center ${reveal}`}>
+                {/* ▲ = lower number (up the sheet), ▼ = higher number. */}
+                {(["lower", "higher"] as const).map((dir) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    tabIndex={-1} // the number field's ↑ ↓ keys do the same
+                    aria-label={nudge[dir] ? `Renumber scene ${label} to ${nudge[dir]}` : undefined}
+                    title={nudge[dir] ? `Make it scene ${nudge[dir]}` : undefined}
+                    disabled={!nudge[dir]}
+                    className={`flex h-3 w-3.5 items-center justify-center rounded-sm text-muted hover:bg-foreground/15 hover:text-foreground ${nudge[dir] ? "" : "invisible"}`}
+                    // Don't take focus from the number field.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => onNudge(dir, false)}
+                  >
+                    <svg aria-hidden viewBox="0 0 8 5" className={`h-1.5 w-2 fill-current ${dir === "higher" ? "rotate-180" : ""}`}>
+                      <path d="M0 5L4 0l4 5z" />
+                    </svg>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         ) : (
           <span className="flex-1 px-1 tabular-nums text-muted">{label}</span>
         )}
