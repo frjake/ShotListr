@@ -21,15 +21,18 @@ export async function saveShotlist(_prev: SaveShotlistState, formData: FormData)
   if (!user) return { error: "You've been logged out. Log in in another tab, then save again." };
 
   let rows: unknown;
+  let characters: unknown;
   try {
     rows = JSON.parse(String(formData.get("rows")));
+    characters = JSON.parse(String(formData.get("characters") ?? "[]"));
   } catch {
     return { error: "Couldn't read the shotlist" };
   }
-  const parsed = shotlistSchema.safeParse({ title: formData.get("title"), rows });
+  const parsed = shotlistSchema.safeParse({ title: formData.get("title"), rows, characters });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const { title } = parsed.data;
   const records = toRowRecords(parsed.data.rows);
+  const characterRecords = parsed.data.characters.map((name, position) => ({ name, position }));
 
   const id = formData.get("id");
   if (typeof id === "string" && id) {
@@ -38,6 +41,8 @@ export async function saveShotlist(_prev: SaveShotlistState, formData: FormData)
       prisma.shotlist.update({ where: { id }, data: { title } }),
       prisma.shotlistRow.deleteMany({ where: { shotlistId: id } }),
       prisma.shotlistRow.createMany({ data: records.map((r) => ({ ...r, shotlistId: id })) }),
+      prisma.shotlistCharacter.deleteMany({ where: { shotlistId: id } }),
+      prisma.shotlistCharacter.createMany({ data: characterRecords.map((c) => ({ ...c, shotlistId: id })) }),
     ]);
     revalidatePath("/", "layout");
     return { savedAt: Date.now(), id };
@@ -46,7 +51,13 @@ export async function saveShotlist(_prev: SaveShotlistState, formData: FormData)
   const script = await readScriptFile(formData.get("script"));
   if (script && "error" in script) return { error: script.error };
   const created = await prisma.shotlist.create({
-    data: { title, userId: user.id, rows: { create: records }, script: script ? { create: script } : undefined },
+    data: {
+      title,
+      userId: user.id,
+      rows: { create: records },
+      characters: { create: characterRecords },
+      script: script ? { create: script } : undefined,
+    },
   });
   revalidatePath("/", "layout");
   return { savedAt: Date.now(), id: created.id };

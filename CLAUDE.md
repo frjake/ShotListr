@@ -11,7 +11,8 @@ See `README.md` for setup. Dev server runs on **port 8000**.
 - Prisma 7 with the `prisma-client` generator → output `src/generated/prisma` (gitignored; run
   `npx prisma generate`). SQLite via `@prisma/adapter-better-sqlite3`; the client singleton is
   `src/lib/db.ts`. Config lives in `prisma.config.ts` (URL comes from `.env` via dotenv), not in the schema.
-  Models: `User`, `Session`, `Shotlist`, `ShotlistRow`, `Script` (one optional file per shotlist, bytes in SQLite).
+  Models: `User`, `Session`, `Shotlist`, `ShotlistRow`, `ShotlistCharacter` (ordered character list), `Script` (one
+  optional file per shotlist, bytes in SQLite).
 - Node ≥ 22. `better-sqlite3` and Prisma have install scripts; npm may need
   `npm approve-scripts better-sqlite3 prisma @prisma/engines`.
 - Next 16 specifics: `params`/`searchParams` are Promises; `cookies()` is async; use the global
@@ -46,13 +47,18 @@ src/lib/scriptParse/  reads scripts into scenes. index.ts (server-only): parseSc
                       docx.ts (screenplay style names, else plain lines), pdf.ts (indents from the action margin, margin
                       scene numbers; classifyPdfLines/pageLines PURE), doc.ts (text only → lines.ts). lines.ts PURE:
                       plain-text rules. scenes.ts PURE: buildScenes + parseHeading, mapScriptNumber, titleCase, characterName.
+src/lib/dragScroll.ts autoScrollStep: one frame of drag auto-scroll (edges clipped to the window; the page scrolls once
+                      the element can't) — run per animation frame by the row drag and the character-list drag
 src/lib/autofill.ts   PURE: sheetIsEmpty, scriptSummary, scenesToRows (replace), mergeScenes (fill in), appendScenes (add to end)
+src/lib/characters.ts PURE: character list ↔ scene Characters cells: parseCharacters, addCharacters, charactersInRows,
+                      scriptCharacters, sortCell/sortAllCells, moveCharacter, renameCharacter, removeCharacter, scenesWith
 src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist, attachScript, removeScript, parseScriptFile, parseStoredScript)
 src/components/       Nav (GuardedLinks: Home, New Shotlist, My Shotlists; Log in / Sign up, or @username + LogoutButton),
                       NavigationGuard (provider in the root layout, useNavigationGuard, GuardedLink, LogoutButton,
                       resetKey — bumped when a GuardedLink targets the current page; /shotlists/new keys its editor
                       on it via NewShotlistEditor so "New Shotlist" from a new shotlist starts over),
                       LocalTime (date/time in the viewer's time zone), ScriptBar (script line at the top of the editor),
+                      CharacterList (collapsible list above the sheet: drag/↑↓ reorder, rename in place, add, remove),
                       ComboboxInput (cells with suggestions — Int./Ext., Time, Framing, Angle: opening shows every
                       option, only typing filters; not a native <datalist>, which always filters by the value),
                       ChoiceDialog/ChoiceCard (one card per outcome, Back/Cancel) + ConfirmDialog (destructive action / Cancel,
@@ -121,7 +127,8 @@ the last 404s unless you own it).
 - **Autofill from scripts** (scenes only, never shots). Rules (all in `scriptParse/scenes.ts`, tested
   per format against `tests/fixtures/scripts`, rebuilt by `generate.mjs`):
   - every INT./EXT./I/E heading is a scene; Time is what follows the last " - " (any text), the rest
-    is Location — both in title case (`titleCase`: short words lowercase mid-part, A.M./P.M. kept). Other headings (INTERCUT, FLASHBACK, BACK TO SCENE…) become subscenes of the scene
+    is Location — both in title case (`titleCase`: short words lowercase mid-part, A.M./P.M. and
+    roman numerals II–XXXIX kept in capitals, curly apostrophes made straight; names use it too). Other headings (INTERCUT, FLASHBACK, BACK TO SCENE…) become subscenes of the scene
     above (heading text in Location); any before the first scene are ignored.
   - script numbers are kept, letters mapped (12A → 12.1, A12 → 11.1) — but only if every scene has
     one and they increase; otherwise 1, 2, 3…
@@ -130,8 +137,17 @@ the last 404s unless you own it).
   Picking a script (new shotlist: automatically; existing: after upload) or the "Autofill from
   script" button parses it on the server and shows `AutofillDialog`: Apply/Cancel on an empty sheet,
   else Fill in (merge by number, empty cells only) / Replace everything / Add to the end (numbered
-  after the last scene). The result is an unsaved change. Unreadable files / no scenes → message in
+  after the last scene). The result is an unsaved change, and an untitled shotlist is named after
+  the script's file (`titleFromFileName`: "Super Quincy.fdx" → "Super Quincy"; the dialog says so). Unreadable files / no scenes → message in
   the script bar, sheet untouched.
+- **Character list.** The shotlist has an ordered list of characters (saved with Save, in the
+  snapshot); every scene's Characters cell (comma-separated) lists its names in list order, with
+  the list's spelling. Invariants kept by `characters.ts`: every name in a cell is on the list
+  (leaving a Characters cell appends new names), and reordering/renaming/removing re-sorts or
+  rewrites the cells. Removing a name used by scenes confirms first. On load the list is the saved
+  one plus any names only found in cells (older shotlists build it from cells; not marked unsaved).
+  Autofill: Replace starts the list over in order of first mention; Fill in / Add to the end keep
+  it and append newcomers. Download adds a "Characters" sheet.
 - **Titles are required.** Save with a blank title opens `TitleDialog` instead (the form's
   `onSubmit` prevents the action); `shotlistSchema` also rejects blank titles.
 - **Unsaved changes** = the current title + rows JSON differs from the last saved snapshot
@@ -144,7 +160,8 @@ the last 404s unless you own it).
 - **Reordering moves blocks.** A scene drags with its shots and can only land between scenes
   (`dropTargets`), so no other scene is split; a shot can land anywhere. The drag is hand-rolled with
   pointer capture on the grip (no DnD library); the target is the nearest allowed boundary to the
-  pointer, shown on that boundary's InsertZone line. ↑/↓ on a focused grip steps by `stepTarget`;
+  pointer, shown on that boundary's InsertZone line. Holding near the sheet's visible top (under the sticky
+  header) or bottom edge auto-scrolls every frame (`autoScrollStep`), then the page. ↑/↓ on a focused grip steps by `stepTarget`;
   Escape cancels a drag. Keep all ordering rules in `rows.ts` so they stay unit-tested.
 - **Deleting** a shot or an empty scene is immediate; otherwise the `<dialog>` asks up to two
   questions in turn, as cards: its shots (delete / keep — kept shots join the scene above), then

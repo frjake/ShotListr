@@ -9,9 +9,23 @@ import { ComboboxInput } from "@/components/ComboboxInput";
 import { useNavigationGuard } from "@/components/NavigationGuard";
 import { ScriptBar, type ScriptBusy } from "@/components/ScriptBar";
 import { appendScenes, mergeScenes, scenesToRows, scriptSummary, sheetIsEmpty } from "@/lib/autofill";
+import { CharacterList } from "@/components/CharacterList";
+import {
+  addCharacters,
+  charactersInRows,
+  moveCharacter,
+  parseCharacters,
+  removeCharacter,
+  renameCharacter,
+  scenesWith,
+  scriptCharacters,
+  sortAllCells,
+  sortCell,
+} from "@/lib/characters";
+import { autoScrollStep } from "@/lib/dragScroll";
 import { downloadShotlist } from "@/lib/exportShotlist";
 import type { ScriptScene } from "@/lib/scriptParse/scenes";
-import { MAX_SCRIPT_BYTES, SCRIPT_ACCEPT, formatFileSize, scriptProblem, type ScriptInfo } from "@/lib/scripts";
+import { MAX_SCRIPT_BYTES, SCRIPT_ACCEPT, formatFileSize, scriptProblem, titleFromFileName, type ScriptInfo } from "@/lib/scripts";
 import {
   ANGLE_OPTIONS,
   FRAMING_OPTIONS,
@@ -86,6 +100,8 @@ type Pending =
   | { type: "removeScript" }
   // Scenes read from a script, waiting for the user to apply them (and choose how, if the sheet has data).
   | { type: "autofill"; fileName: string; scenes: ScriptScene[] }
+  // "Are you sure?" before removing a character that scenes list.
+  | { type: "removeCharacter"; name: string }
   // Leaving with unsaved changes: save first, leave anyway, or stay.
   | { type: "leave"; proceed: () => void };
 
@@ -96,7 +112,7 @@ type AfterSave = { type: "leave"; proceed: () => void } | { type: "download" };
 type EditorSaveState = { error?: string; savedAt?: number; snapshot?: string } | undefined;
 
 /** Everything a save sends, as one comparable string. */
-const snapshotOf = (title: string, rowsJson: string) => `${title}\u0000${rowsJson}`;
+const snapshotOf = (title: string, rowsJson: string, charactersJson: string) => `${title}\u0000${rowsJson}\u0000${charactersJson}`;
 
 export function ShotlistEditor({
   id,
@@ -104,15 +120,30 @@ export function ShotlistEditor({
   initialTitle,
   initialRows,
   initialScript = null,
+  initialCharacters = [],
 }: {
   id?: string;
   heading: string;
   initialTitle: string;
   initialRows: RowData[];
   initialScript?: ScriptInfo | null;
+  initialCharacters?: string[];
 }) {
   const [title, setTitle] = useState(initialTitle);
-  const [rows, setRows] = useState<EditorRow[]>(() => initialRows.map((r, i) => ({ ...r, key: `r${i}` })));
+  // The character list starts as the saved one plus any names already typed in scene cells (older
+  // shotlists have only the cells), and the cells start in list order.
+  const [initial] = useState(() => {
+    const characters = addCharacters(initialCharacters, charactersInRows(initialRows));
+    const sortedRows = sortAllCells(initialRows, characters);
+    return {
+      characters,
+      rows: sortedRows,
+      snapshot: snapshotOf(initialTitle, JSON.stringify(sortedRows.map(cleanRow)), JSON.stringify(characters)),
+    };
+  });
+  const [rows, setRows] = useState<EditorRow[]>(() => initial.rows.map((r, i) => ({ ...r, key: `r${i}` })));
+  const [characters, setCharacters] = useState<string[]>(initial.characters);
+  const [charactersOpen, setCharactersOpen] = useState(false);
   const nextKey = useRef(initialRows.length);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -137,7 +168,6 @@ export function ShotlistEditor({
   const { setGuard } = useNavigationGuard();
   const saveFormEl = useRef<HTMLFormElement>(null);
   const afterSave = useRef<AfterSave | null>(null);
-  const [initialSnapshot] = useState(() => snapshotOf(initialTitle, JSON.stringify(initialRows.map(cleanRow))));
 
   const [state, action, pending] = useActionState(async (prev: EditorSaveState, formData: FormData): Promise<EditorSaveState> => {
     const then = afterSave.current;
@@ -149,16 +179,25 @@ export function ShotlistEditor({
       then.proceed();
     } else {
       // Download exactly what was saved (the title may have just come from the title prompt).
-      if (then?.type === "download") void exportFile(String(formData.get("title")), JSON.parse(String(formData.get("rows"))));
+      if (then?.type === "download") {
+        void exportFile(String(formData.get("title")), JSON.parse(String(formData.get("rows"))), JSON.parse(String(formData.get("characters"))));
+      }
       if (!id) router.replace(`/shotlists/${result.id}`); // a new shotlist moves to its own page
     }
-    return { savedAt: result.savedAt, snapshot: snapshotOf(String(formData.get("title")), String(formData.get("rows"))) };
+    return {
+      savedAt: result.savedAt,
+      snapshot: snapshotOf(String(formData.get("title")), String(formData.get("rows")), String(formData.get("characters"))),
+    };
   }, undefined);
 
   const rowEls = useRef(new Map<string, HTMLDivElement>());
   const gripEls = useRef(new Map<string, HTMLButtonElement>());
   const numberEls = useRef(new Map<string, HTMLInputElement>());
   const scrollEl = useRef<HTMLDivElement>(null);
+  const headerEl = useRef<HTMLDivElement>(null);
+  const pointerY = useRef(0);
+  // The latest drop-target finder, for the auto-scroll loop (which outlives a single render).
+  const dropTargetAt = useRef<(clientY: number) => number | null>(() => null);
   const dialogEl = useRef<HTMLDialogElement>(null);
   const focusAfterRender = useRef<FocusTarget | null>(null);
 
@@ -195,6 +234,32 @@ export function ShotlistEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [drag]);
 
+  // Keep the drop-target finder current for the auto-scroll loop below.
+  useLayoutEffect(() => {
+    dropTargetAt.current = (clientY) => (drag ? targetAt(clientY, drag.from) : null);
+  });
+
+  // While dragging a row, keep scrolling the sheet (then the page) whenever the pointer is near or
+  // past its visible top edge (just under the sticky header) or bottom edge — even if the pointer is
+  // held still — and keep the drop line in step.
+  const dragging = drag !== null;
+  useEffect(() => {
+    if (!dragging) return;
+    let frame = 0;
+    const step = () => {
+      const sheet = scrollEl.current;
+      const y = pointerY.current;
+      const headerHeight = headerEl.current?.offsetHeight ?? 0;
+      if (sheet && autoScrollStep(sheet, y, headerHeight)) {
+        const target = dropTargetAt.current(y);
+        if (target !== null) setDrag((d) => d && (d.target === target ? d : { ...d, target }));
+      }
+      frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [dragging]);
+
   // ----- Inserting -----
 
   function showZone(boundary: number) {
@@ -230,6 +295,61 @@ export function ShotlistEditor({
 
   function updateCell(key: string, field: RowField, value: string) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  }
+
+  // ----- Characters -----
+
+  /** Leaving a Characters cell: new names join the end of the list, and the cell is put in list order. */
+  function charactersCellDone(key: string) {
+    const row = rows.find((r) => r.key === key);
+    if (!row) return;
+    const list = addCharacters(characters, parseCharacters(row.characters));
+    if (list.length !== characters.length) setCharacters(list);
+    const sorted = sortCell(row.characters, list);
+    if (sorted !== row.characters) updateCell(key, "characters", sorted);
+  }
+
+  function moveCharacterTo(from: number, to: number) {
+    const list = moveCharacter(characters, from, to);
+    setCharacters(list);
+    setRows((prev) => sortAllCells(prev, list));
+    setAnnouncement(`${characters[from]} moved to position ${to + 1}`);
+  }
+
+  function renameCharacterAt(index: number, name: string): string | null {
+    const result = renameCharacter(rows, characters, index, name);
+    if (result.status !== "ok") {
+      if (result.status === "empty") return "A character needs a name.";
+      return result.status === "exists" ? `${result.name} is already in the list.` : null;
+    }
+    setCharacters(result.list);
+    setRows(sortAllCells(result.rows, result.list));
+    return null;
+  }
+
+  /** Removing a character that scenes list asks first; otherwise it goes straight away. */
+  function requestRemoveCharacter(index: number) {
+    if (scenesWith(rows, characters[index]) > 0) return setPendingChoice({ type: "removeCharacter", name: characters[index] });
+    setCharacters(characters.filter((_, i) => i !== index));
+  }
+
+  function confirmRemoveCharacter(name: string) {
+    const index = characters.indexOf(name);
+    if (index !== -1) {
+      const result = removeCharacter(rows, characters, index);
+      setCharacters(result.list);
+      setRows(result.rows);
+      setAnnouncement(`Removed ${name}`);
+    }
+    closeDialog();
+  }
+
+  function addCharacter(raw: string): string | null {
+    const name = raw.replace(/\s+/g, " ").replace(/,/g, "").trim();
+    if (!name) return "A character needs a name.";
+    if (characters.some((n) => n.toLowerCase() === name.toLowerCase())) return `${name} is already in the list.`;
+    setCharacters([...characters, name]);
+    return null;
   }
 
   // ----- Moving -----
@@ -326,14 +446,13 @@ export function ShotlistEditor({
     if (e.button !== 0) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    pointerY.current = e.clientY;
     setDrag({ from: index, count: blockEnd(kinds, index) - index, target: index });
   }
 
   function onGripPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    pointerY.current = e.clientY;
     if (!drag) return;
-    const box = scrollEl.current?.getBoundingClientRect();
-    if (box && e.clientY < box.top + 72) scrollEl.current!.scrollTop -= 12; // below the sticky header
-    if (box && e.clientY > box.bottom - 32) scrollEl.current!.scrollTop += 12;
     const target = targetAt(e.clientY, drag.from);
     if (target !== drag.target) setDrag({ ...drag, target });
   }
@@ -351,7 +470,9 @@ export function ShotlistEditor({
   }
 
   const payload = JSON.stringify(rows.map(cleanRow));
-  const unsaved = snapshotOf(title, payload) !== (state?.snapshot ?? initialSnapshot) || (!id && pendingScript !== null);
+  const charactersPayload = JSON.stringify(characters);
+  const unsaved =
+    snapshotOf(title, payload, charactersPayload) !== (state?.snapshot ?? initial.snapshot) || (!id && pendingScript !== null);
 
   // While there are unsaved changes, in-app navigation asks first (nav links, Log out) and the
   // browser warns before closing or reloading the tab (it doesn't allow a custom prompt there).
@@ -427,13 +548,22 @@ export function ShotlistEditor({
     }
   }
 
-  /** Puts the script's scenes into the sheet (an unsaved change, like any edit). */
-  function applyAutofill(scenes: ScriptScene[], mode: "replace" | "merge" | "append") {
+  /**
+   * Puts the script's scenes into the sheet (an unsaved change, like any edit), and names an untitled
+   * shotlist after the script's file.
+   */
+  function applyAutofill(fileName: string, scenes: ScriptScene[], mode: "replace" | "merge" | "append") {
+    if (!title.trim()) setTitle(titleFromFileName(fileName));
     const create = (row: RowData): EditorRow => ({ ...row, key: `r${nextKey.current++}` });
     const next =
       mode === "merge" ? mergeScenes(rows, scenes, create) : mode === "append" ? appendScenes(rows, scenes, create) : scenesToRows(scenes).map(create);
+    // Replacing starts the list over in order of first mention; otherwise newcomers go at the end.
+    const fromScript = scriptCharacters(scenes);
+    const list = addCharacters(mode === "replace" ? fromScript : addCharacters(characters, fromScript), charactersInRows(next));
     setAnnouncement(`Autofilled ${scenes.length} scene${scenes.length === 1 ? "" : "s"} from the script`);
-    setRows(next);
+    setCharacters(list);
+    setRows(sortAllCells(next, list));
+    setCharactersOpen(true);
     closeDialog();
   }
 
@@ -458,11 +588,11 @@ export function ShotlistEditor({
   }
 
   /** Builds and downloads an .xlsx of the given title and rows. */
-  async function exportFile(fileTitle: string, fileRows: RowData[]) {
+  async function exportFile(fileTitle: string, fileRows: RowData[], fileCharacters: string[]) {
     setExporting(true);
     setExportError(null);
     try {
-      await downloadShotlist(fileTitle.trim() || "Untitled shotlist", fileRows);
+      await downloadShotlist(fileTitle.trim() || "Untitled shotlist", fileRows, fileCharacters);
     } catch {
       setExportError("Couldn't create the spreadsheet. Try again.");
     } finally {
@@ -480,7 +610,7 @@ export function ShotlistEditor({
   function downloadAsIs() {
     if (!title.trim()) return setPendingChoice({ type: "downloadTitle" });
     closeDialog();
-    void exportFile(title, rows.map(cleanRow));
+    void exportFile(title, rows.map(cleanRow), characters);
   }
 
   /** Sets the title from the title prompt and downloads, without saving. */
@@ -490,7 +620,7 @@ export function ShotlistEditor({
       setPendingChoice(null);
     });
     dialogEl.current?.close();
-    void exportFile(newTitle, rows.map(cleanRow));
+    void exportFile(newTitle, rows.map(cleanRow), characters);
   }
 
   /** Saves with `newTitle` (from the title prompt), then does `then`, if anything. */
@@ -547,6 +677,7 @@ export function ShotlistEditor({
             {id && <input type="hidden" name="id" value={id} />}
             <input type="hidden" name="title" value={title} />
             <input type="hidden" name="rows" value={payload} />
+            <input type="hidden" name="characters" value={charactersPayload} />
             <button type="submit" className="btn-primary" disabled={pending}>
               {pending ? "Saving…" : "Save"}
             </button>
@@ -588,13 +719,23 @@ export function ShotlistEditor({
         />
       </div>
 
+      <CharacterList
+        names={characters}
+        open={charactersOpen}
+        onToggle={() => setCharactersOpen((o) => !o)}
+        onMove={moveCharacterTo}
+        onRename={renameCharacterAt}
+        onRemove={requestRemoveCharacter}
+        onAdd={addCharacter}
+      />
+
       <div
         ref={scrollEl}
         data-sheet
         className={`max-h-[calc(100dvh-15rem)] min-h-64 overflow-auto rounded-lg border border-line ${drag ? "cursor-grabbing select-none" : ""}`}
       >
         <div className="min-w-[49rem] pb-12">
-          <div className="sticky top-0 z-20 text-xs font-semibold uppercase tracking-wide">
+          <div ref={headerEl} className="sticky top-0 z-20 text-xs font-semibold uppercase tracking-wide">
             <HeaderRow className="bg-scene" number="Scene #" columns={SCENE_COLUMNS} />
             <HeaderRow className="bg-header text-muted" number="Shot #" columns={SHOT_COLUMNS} />
           </div>
@@ -624,6 +765,7 @@ export function ShotlistEditor({
                   return () => void numberEls.current.delete(row.key);
                 }}
                 onChange={(field, value) => updateCell(row.key, field, value)}
+                onCellBlur={(field) => field === "characters" && charactersCellDone(row.key)}
                 onRenumber={(text, keepFocus) => renumber(i, text, keepFocus)}
                 onGripPointerDown={(e) => onGripPointerDown(e, i)}
                 onGripPointerMove={onGripPointerMove}
@@ -716,9 +858,20 @@ export function ShotlistEditor({
         {pendingChoice?.type === "autofill" && (
           <AutofillDialog
             fileName={pendingChoice.fileName}
+            newTitle={title.trim() ? null : titleFromFileName(pendingChoice.fileName)}
             scenes={pendingChoice.scenes}
             rows={rows}
-            onApply={(mode) => applyAutofill(pendingChoice.scenes, mode)}
+            onApply={(mode) => applyAutofill(pendingChoice.fileName, pendingChoice.scenes, mode)}
+            onCancel={closeDialog}
+          />
+        )}
+        {pendingChoice?.type === "removeCharacter" && (
+          <ConfirmDialog
+            title={`Remove ${pendingChoice.name}?`}
+            body={`${pendingChoice.name} is listed in ${scenesWith(rows, pendingChoice.name) === 1 ? "1 scene" : `${scenesWith(rows, pendingChoice.name)} scenes`}. Removing them from the list also removes them from those scenes.`}
+            confirmLabel="Remove"
+            busyLabel="Removing…"
+            onConfirm={() => confirmRemoveCharacter(pendingChoice.name)}
             onCancel={closeDialog}
           />
         )}
@@ -814,6 +967,7 @@ function SheetRow({
   gripRef,
   numberRef,
   onChange,
+  onCellBlur,
   onRenumber,
   onGripPointerDown,
   onGripPointerMove,
@@ -831,6 +985,7 @@ function SheetRow({
   gripRef: React.RefCallback<HTMLButtonElement>;
   numberRef: React.RefCallback<HTMLInputElement>;
   onChange: (field: RowField, value: string) => void;
+  onCellBlur: (field: RowField) => void;
   onRenumber: (text: string, keepFocus: boolean) => boolean;
   onGripPointerDown: React.PointerEventHandler<HTMLButtonElement>;
   onGripPointerMove: React.PointerEventHandler<HTMLButtonElement>;
@@ -934,6 +1089,7 @@ function SheetRow({
               autoFocus={autoFocus && ci === 0}
               value={row[c.field]}
               onChange={(e) => onChange(c.field, e.target.value)}
+              onBlur={() => onCellBlur(c.field)}
             />
           )}
         </div>
@@ -1183,12 +1339,15 @@ const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
  */
 function AutofillDialog({
   fileName,
+  newTitle,
   scenes,
   rows,
   onApply,
   onCancel,
 }: {
   fileName: string;
+  /** The title an untitled shotlist will get, if any. */
+  newTitle: string | null;
   scenes: ScriptScene[];
   rows: readonly RowData[];
   onApply: (mode: "replace" | "merge" | "append") => void;
@@ -1196,13 +1355,16 @@ function AutofillDialog({
 }) {
   const found = scriptSummary(scenes);
   const summary = `Found ${count(found.scenes, "scene")} and ${count(found.characters, "speaking character")}.`;
+  const naming = newTitle ? ` The shotlist will be named “${newTitle}”.` : "";
   const title = `Autofill from “${fileName}”`;
 
   if (sheetIsEmpty(rows)) {
     return (
       <div className="flex flex-col gap-4">
         <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="text-sm text-muted">{summary} They&apos;ll be added as scenes; you can edit them before saving.</p>
+        <p className="text-sm text-muted">
+          {summary} They&apos;ll be added as scenes; you can edit them before saving.{naming}
+        </p>
         <div className="flex gap-2">
           <button type="button" className="btn-primary flex-1" onClick={() => onApply("replace")}>Apply</button>
           <button type="button" className="btn-secondary flex-1" onClick={onCancel}>Cancel</button>
@@ -1215,7 +1377,7 @@ function AutofillDialog({
   const shotCount = rows.length - sceneRows.length;
   const lastTop = Math.max(0, ...sceneRows.map((r) => Number(r.sceneNumber.split(".")[0])));
   return (
-    <ChoiceDialog title={title} body={`${summary} This shotlist already has data. How should the script's scenes be added?`} onCancel={onCancel}>
+    <ChoiceDialog title={title} body={`${summary} This shotlist already has data. How should the script's scenes be added?${naming}`} onCancel={onCancel}>
       <ChoiceCard
         autoFocus
         title="Fill in from the script"

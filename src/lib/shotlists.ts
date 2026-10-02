@@ -20,6 +20,10 @@ export const shotlistSchema = z.object({
     .trim()
     .min(1, "Add a title before saving")
     .max(200, "Title must be at most 200 characters"),
+  characters: z
+    .array(z.string().trim().min(1).max(200, "A character name can be at most 200 characters"))
+    .max(1000, "A shotlist can have at most 1000 characters")
+    .refine((names) => new Set(names.map((n) => n.toLowerCase())).size === names.length, "Each character can only be listed once"),
   rows: z
     .array(rowSchema)
     .max(2000, "A shotlist can have at most 2000 rows")
@@ -49,6 +53,7 @@ export function getOwnedShotlist(id: string, userId: string) {
     include: {
       rows: { orderBy: { position: "asc" } },
       script: { select: { fileName: true, size: true } }, // never the bytes
+      characters: { orderBy: { position: "asc" }, select: { name: true } },
     },
   });
 }

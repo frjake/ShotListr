@@ -45,3 +45,9 @@ export function formatFileSize(bytes: number): string {
   const mb = bytes / (1024 * 1024);
   return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
 }
+
+/** A title from a script's file name: "Super Quincy.fdx" → "Super Quincy" (extension dropped, at most 200 characters). */
+export function titleFromFileName(fileName: string): string {
+  const dot = fileName.lastIndexOf(".");
+  return (dot > 0 ? fileName.slice(0, dot) : fileName).replace(/\s+/g, " ").trim().slice(0, 200);
+}

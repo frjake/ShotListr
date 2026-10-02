@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatFileSize, MAX_SCRIPT_BYTES, scriptContentType, scriptProblem } from "@/lib/scripts";
+import { formatFileSize, MAX_SCRIPT_BYTES, scriptContentType, scriptProblem, titleFromFileName } from "@/lib/scripts";
 
 describe("scriptProblem", () => {
   it("accepts .doc, .docx, .pdf and .fdx in any case", () => {
@@ -30,5 +30,15 @@ describe("formatFileSize", () => {
     expect(formatFileSize(48_300)).toBe("47 KB");
     expect(formatFileSize(2_400_000)).toBe("2.3 MB");
     expect(formatFileSize(MAX_SCRIPT_BYTES)).toBe("20 MB");
+  });
+});
+
+describe("titleFromFileName", () => {
+  it("drops the extension and tidies spaces", () => {
+    expect(titleFromFileName("Super Quincy.fdx")).toBe("Super Quincy");
+    expect(titleFromFileName("draft.v2.final.PDF")).toBe("draft.v2.final");
+    expect(titleFromFileName("  My   Script .docx")).toBe("My Script");
+    expect(titleFromFileName(".fdx")).toBe(".fdx");
+    expect(titleFromFileName(`${"a".repeat(250)}.pdf`)).toHaveLength(200);
   });
 });

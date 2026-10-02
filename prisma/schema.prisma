@@ -42,9 +42,10 @@ model Shotlist {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rows   ShotlistRow[]
-  script Script?
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rows       ShotlistRow[]
+  script     Script?
+  characters ShotlistCharacter[]
 
   @@index([userId])
 }
@@ -86,4 +87,17 @@ model Script {
   uploadedAt DateTime @default(now())
 
   shotlist Shotlist @relation(fields: [shotlistId], references: [id], onDelete: Cascade)
+}
+
+// The shotlist's character list, in the user's order (autofill starts it in order of first mention).
+// Scene Characters cells list their names in this order. Replaced as a whole on save, like rows.
+model ShotlistCharacter {
+  id         String @id @default(cuid())
+  shotlistId String
+  position   Int
+  name       String
+
+  shotlist Shotlist @relation(fields: [shotlistId], references: [id], onDelete: Cascade)
+
+  @@unique([shotlistId, position])
 }

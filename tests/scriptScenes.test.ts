@@ -52,6 +52,23 @@ describe("titleCase", () => {
     expect(titleCase("WHAT IT COMES TO", { minorWords: true })).toBe("What It Comes To");
     expect(titleCase("TOP OF THE STAIRS")).toBe("Top Of The Stairs");
   });
+  it("straightens curly apostrophes", () => {
+    expect(titleCase("EVIL FELIX’S LAIR", { minorWords: true })).toBe("Evil Felix's Lair");
+    expect(titleCase("MAYOR‘S OFFICE")).toBe("Mayor's Office");
+    expect(characterName("MRS. O’BRIEN")).toBe(characterName("MRS. O'BRIEN"));
+  });
+  it("keeps roman numerals in capitals", () => {
+    expect(titleCase("EVIL QUINCY’S LAIR, EARTH II", { minorWords: true })).toBe("Evil Quincy's Lair, Earth II");
+    expect(titleCase("PART IV (FLASHBACK) - YEAR XXIII", { minorWords: true })).toBe("Part IV (Flashback) - Year XXIII");
+    expect(titleCase("CHAPTER VI, ROOM XI", { minorWords: true })).toBe("Chapter VI, Room XI");
+    expect(titleCase("EARTH I")).toBe("Earth I");
+    expect(characterName("HENRY VIII")).toBe("Henry VIII");
+    expect(characterName("VI")).toBe("Vi");
+    expect(characterName("XI JINPING")).toBe("Xi Jinping");
+  });
+  it("leaves words that only look like numerals alone", () => {
+    expect(titleCase("MIX DIVISION LIV CIVIC VIX IIV", { minorWords: true })).toBe("Mix Division Liv Civic Vix Iiv");
+  });
   it("keeps A.M. and P.M. in capitals", () => {
     expect(titleCase("MORNING, 7 A.M.", { minorWords: true, times: true })).toBe("Morning, 7 A.M.");
     expect(titleCase("late p.m.", { times: true })).toBe("Late P.M.");

@@ -50,6 +50,12 @@ A new shotlist starts by asking whether to attach a script (.doc, .docx, .pdf or
 or use Replace / Remove; without one there's an "Add script" button. On a saved shotlist these take
 effect right away; a new shotlist's script is stored when it's first saved.
 
+**Characters** (above the sheet) is the shotlist's character list. Autofill fills it in order of
+first mention; drag the ⠿ grip (or use ↑/↓) to reorder, click a name to rename it, or add and remove
+names. Every scene's Characters cell follows the list's order, renames and removals update the
+scenes, and names typed into a scene are added to the list. The download includes it as a second
+sheet.
+
 **Autofill from script** reads the script's scenes into the shotlist: each INT./EXT. heading
 becomes a scene (Int./Ext., Location, Time — the last two in title case, e.g. "Top of the
 Stairs", "Dawn, 5 A.M.") with the characters who speak in it; headings like

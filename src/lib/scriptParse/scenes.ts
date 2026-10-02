@@ -58,14 +58,20 @@ export function mapScriptNumber(raw: string): SceneNumber | null {
 /** Short words kept lowercase inside titles ("Top of the Stairs"), unless they start a part. */
 const MINOR_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "off", "on", "onto", "or", "over", "the", "to", "up", "upon", "via", "vs", "vs.", "with"]);
 
+/** Roman numerals made of I, V and X, two letters or more (II … XXXIX); I alone is already a capital. */
+const ROMAN = /^(?=[ivx]{2,}$)x{0,3}(ix|iv|v?i{0,3})$/i;
+
 /**
  * Title case for script text: "MRS. O'BRIEN" → "Mrs. O'Brien", "ANA'S KITCHEN" → "Ana's Kitchen".
+ * Curly apostrophes become straight ones, so the same name or place always reads the same, and
+ * roman numerals stay capitals ("EARTH II" → "Earth II"; in names, "Vi" and "Xi" stay names).
  * With `minorWords`, short words stay lowercase except first, last, or after a " - " / "/" / "(":
  * "BACK TO THE HOUSE - TOP OF THE STAIRS" → "Back to the House - Top of the Stairs". A.M. and P.M.
  * stay capitals ("7am" → "7AM"); with `times`, so do AM/PM on their own ("EARLY AM" → "Early AM").
  */
 export function titleCase(text: string, { minorWords = false, times = false } = {}): string {
   const cased = text
+    .replace(/[’‘ʼ]/g, "'")
     .toLowerCase()
     .replace(/(^|[\s\-./(])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase())
     .replace(/(['’])(\p{L})(?=\p{L})/gu, (_, q: string, ch: string) => q + ch.toUpperCase());
@@ -78,6 +84,10 @@ export function titleCase(text: string, { minorWords = false, times = false } = 
     const index = w++;
     let word = part;
     if (minorWords && !startOfPart && index !== words.length - 1 && MINOR_WORDS.has(word.toLowerCase())) word = word.toLowerCase();
+    // Roman numerals, ignoring punctuation around them: "II,", "(IV)".
+    word = word.replace(/\p{L}+/gu, (core) =>
+      ROMAN.test(core) && (minorWords || !/^(vi|xi)$/i.test(core)) ? core.toUpperCase() : core,
+    );
     // A dash or slash on its own, or a word ending in ":" or "(", starts a new part.
     startOfPart = /^(?:-{1,2}|[–—/])$|[:(]$/.test(part);
     return word;

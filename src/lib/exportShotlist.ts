@@ -13,7 +13,7 @@ function safeName(title: string) {
   return title.replace(/[\\/:*?"<>|[\]]/g, "-").trim() || "Shotlist";
 }
 
-export async function downloadShotlist(title: string, rows: readonly RowData[]) {
+export async function downloadShotlist(title: string, rows: readonly RowData[], characters: readonly string[] = []) {
   const { default: ExcelJS } = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
   // Excel limits sheet names to 31 characters.
@@ -31,6 +31,18 @@ export async function downloadShotlist(title: string, rows: readonly RowData[]) 
       cell.numFmt = "@"; // keep numbers like 12.10 as typed
       cell.font = { name: "Calibri", size: 11, bold, color: BLACK };
       cell.alignment = { vertical: "top", wrapText: true };
+      cell.border = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER };
+    });
+  });
+
+  // A second sheet with the character list, in the user's order.
+  const cast = workbook.addWorksheet("Characters", { views: [{ state: "frozen", ySplit: 1 }] });
+  cast.columns = [{ width: 6 }, { width: 36 }];
+  [["#", "Character"], ...characters.map((name, i) => [String(i + 1), name])].forEach((values, r) => {
+    const row = cast.addRow(values);
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.numFmt = "@";
+      cell.font = { name: "Calibri", size: 11, bold: r === 0, color: BLACK };
       cell.border = { top: BORDER, left: BORDER, bottom: BORDER, right: BORDER };
     });
   });

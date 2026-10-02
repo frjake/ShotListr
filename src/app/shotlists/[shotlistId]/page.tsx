@@ -26,6 +26,7 @@ export default async function EditShotlist(props: PageProps<"/shotlists/[shotlis
       initialTitle={shotlist.title}
       initialRows={shotlist.rows.map((r) => cleanRow({ ...r, kind: r.kind as RowKind }))}
       initialScript={shotlist.script}
+      initialCharacters={shotlist.characters.map((c) => c.name)}
     />
   );
 }
