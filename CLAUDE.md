@@ -71,7 +71,8 @@ src/app/shotlists/ShotlistCards.tsx  My Shotlists grid + delete confirmation (Ca
                       ChoiceDialog/ChoiceCard), TitleDialog, leave dialog, Save form)
 ```
 
-Routes: `/`, `/login`, `/register`, `/shotlists` (cards of your shotlists, most recently saved first —
+Routes: `/` (home page = a user guide: hero with a static `home/SheetPreview`, how it works, feature
+cards, script formats, shortcuts — **update its copy when features change**), `/login`, `/register`, `/shotlists` (cards of your shotlists, most recently saved first —
 `updatedAt` changes only on save — each with a delete button that confirms first),
 `/shotlists/[shotlistId]/script` (GET: the owner's script as an attachment; 404 otherwise), `/shotlists/new`, `/shotlists/[shotlistId]` (all three require login;
 the last 404s unless you own it).
