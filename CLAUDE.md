@@ -51,14 +51,16 @@ src/lib/dragScroll.ts autoScrollStep: one frame of drag auto-scroll (edges clipp
                       the element can't) — run per animation frame by the row drag and the character-list drag
 src/lib/autofill.ts   PURE: sheetIsEmpty, scriptSummary, scenesToRows (replace), mergeScenes (fill in), appendScenes (add to end)
 src/lib/characters.ts PURE: character list ↔ scene Characters cells: parseCharacters, addCharacters, charactersInRows,
-                      scriptCharacters, sortCell/sortAllCells, moveCharacter, renameCharacter, removeCharacter, scenesWith
+                      scriptCharacters, sortCell/sortAllCells, moveCharacter, renameCharacter, removeCharacter, scenesWith,
+                      addToScene (by typed scene number: added / already / missing)
 src/app/actions/      'use server' files: auth (register, login, logout), shotlists (saveShotlist, deleteShotlist, attachScript, removeScript, parseScriptFile, parseStoredScript)
 src/components/       Nav (GuardedLinks: Home, New Shotlist, My Shotlists; Log in / Sign up, or @username + LogoutButton),
                       NavigationGuard (provider in the root layout, useNavigationGuard, GuardedLink, LogoutButton,
                       resetKey — bumped when a GuardedLink targets the current page; /shotlists/new keys its editor
                       on it via NewShotlistEditor so "New Shotlist" from a new shotlist starts over),
                       LocalTime (date/time in the viewer's time zone), ScriptBar (script line at the top of the editor),
-                      CharacterList (collapsible list above the sheet: drag/↑↓ reorder, rename in place, add, remove),
+                      CharacterList (collapsible list above the sheet: drag/↑↓ reorder, rename in place, add, remove,
+                      + in a name's box → "Scene #" box to add them to scenes; stays open for more),
                       ComboboxInput (cells with suggestions — Int./Ext., Time, Framing, Angle: opening shows every
                       option, only typing filters; not a native <datalist>, which always filters by the value),
                       ChoiceDialog/ChoiceCard (one card per outcome, Back/Cancel) + ConfirmDialog (destructive action / Cancel,

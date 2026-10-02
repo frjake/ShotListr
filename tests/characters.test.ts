@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addCharacters,
+  addToScene,
   charactersInRows,
   moveCharacter,
   parseCharacters,
@@ -87,5 +88,32 @@ describe("removeCharacter", () => {
     const r = removeCharacter([scene("1", "Ana, Ben"), scene("2", "BEN")], ["Ana", "Ben"], 1);
     expect(r.list).toEqual(["Ana"]);
     expect(cells(r.rows)).toEqual(["Ana", ""]);
+  });
+});
+
+describe("addToScene", () => {
+  const list = ["Ana", "Ben", "Carol"];
+  const rows = [scene("1", "Carol"), shot("x"), scene("12", ""), scene("12.1", "Ben")];
+  it("adds the character in list order", () => {
+    const r = addToScene(rows, list, "Ana", "1");
+    expect(r.status).toBe("added");
+    if (r.status === "added") {
+      expect(cells(r.rows)).toEqual(["Ana, Carol", "", "Ben"]);
+      expect(r.rows[1]).toBe(rows[1]);
+    }
+    const empty = addToScene(rows, list, "Ben", "12");
+    expect(empty.status === "added" && cells(empty.rows)[1]).toBe("Ben");
+  });
+  it("normalises the number", () => {
+    expect(addToScene(rows, list, "Ana", " 012 ")).toMatchObject({ status: "added", number: "12" });
+    expect(addToScene(rows, list, "Ana", "12.1")).toMatchObject({ status: "added", number: "12.1" });
+  });
+  it("reports scenes that already list them (any capitalisation)", () => {
+    expect(addToScene(rows, list, "carol", "1")).toEqual({ status: "already", number: "1" });
+  });
+  it("reports scenes that don't exist", () => {
+    expect(addToScene(rows, list, "Ana", "7")).toEqual({ status: "missing", number: "7" });
+    expect(addToScene(rows, list, "Ana", "1A")).toEqual({ status: "missing", number: "1A" });
+    expect(addToScene(rows, list, "Ana", "abc")).toEqual({ status: "missing", number: "abc" });
   });
 });

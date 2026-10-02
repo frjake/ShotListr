@@ -14,7 +14,8 @@ function gapAt(items: (HTMLLIElement | null)[], clientY: number) {
  * The shotlist's character list: a collapsible section above the sheet. Names can be reordered
  * (drag the ⠿ grip with pointer capture, or focus it and press ↑/↓; dragging near the list's top or
  * bottom edge scrolls it), renamed in place (Enter or
- * leaving the field commits, Escape reverts), removed, and added. The editor owns the list and keeps
+ * leaving the field commits, Escape reverts), removed, and added. The + in a name's box adds that
+ * character to a scene by number (the box stays open for more). The editor owns the list and keeps
  * scene Characters cells in its order; refused renames/adds come back as a message.
  */
 export function CharacterList({
@@ -25,6 +26,7 @@ export function CharacterList({
   onRename,
   onRemove,
   onAdd,
+  onAddToScene,
 }: {
   names: string[];
   open: boolean;
@@ -36,9 +38,13 @@ export function CharacterList({
   onRemove: (index: number) => void;
   /** Returns a message if the name was refused. */
   onAdd: (name: string) => string | null;
+  /** Adds a character to the scene with that number; says what happened. */
+  onAddToScene: (name: string, sceneNumber: string) => { ok: boolean; message: string };
 }) {
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
+  // The name whose "add to scene" box is open (one at a time), what's typed, and the last result.
+  const [adding, setAdding] = useState<{ name: string; text: string; result: { ok: boolean; message: string } | null } | null>(null);
   // Dragging: the name's index and the gap (0..length) it would drop into.
   const [drag, setDrag] = useState<{ from: number; gap: number } | null>(null);
   const itemEls = useRef<(HTMLLIElement | null)[]>([]);
@@ -111,8 +117,9 @@ export function CharacterList({
                 <li
                   key={name}
                   ref={(el) => void (itemEls.current[i] = el)}
-                  className={`group/char flex items-center gap-1 border-t-2 py-0.5 ${drag?.gap === i && drag.from !== i && drag.from !== i - 1 ? "border-foreground" : "border-transparent"} ${drag?.from === i ? "opacity-40" : ""} ${i === names.length - 1 && drag?.gap === names.length && drag.from !== i ? "border-b-2 border-b-foreground" : ""}`}
+                  className={`group/char border-t-2 py-0.5 ${drag?.gap === i && drag.from !== i && drag.from !== i - 1 ? "border-foreground" : "border-transparent"} ${drag?.from === i ? "opacity-40" : ""} ${i === names.length - 1 && drag?.gap === names.length && drag.from !== i ? "border-b-2 border-b-foreground" : ""}`}
                 >
+                  <div className="flex items-center gap-1">
                   <button
                     ref={(el) => {
                       if (!el) return;
@@ -150,22 +157,42 @@ export function CharacterList({
                     </svg>
                   </button>
                   <span className="w-6 shrink-0 text-right text-xs tabular-nums text-muted">{i + 1}.</span>
-                  <input
-                    key={name}
-                    defaultValue={name}
-                    aria-label={`Character ${i + 1} name`}
-                    maxLength={200}
-                    className="h-7 min-w-0 flex-1 rounded bg-transparent px-1.5 text-sm hover:bg-foreground/10 focus:bg-background focus:outline-none focus:ring-2 focus:ring-foreground/70"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        commitName(e.currentTarget, i);
-                      } else if (e.key === "Escape") {
-                        e.currentTarget.value = name;
-                      }
-                    }}
-                    onBlur={(e) => commitName(e.currentTarget, i)}
-                  />
+                  <div className="relative min-w-0 flex-1">
+                    <input
+                      key={name}
+                      defaultValue={name}
+                      aria-label={`Character ${i + 1} name`}
+                      maxLength={200}
+                      className="h-7 w-full rounded bg-transparent px-1.5 pr-7 text-sm hover:bg-foreground/10 focus:bg-background focus:outline-none focus:ring-2 focus:ring-foreground/70"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitName(e.currentTarget, i);
+                        } else if (e.key === "Escape") {
+                          e.currentTarget.value = name;
+                        }
+                      }}
+                      onBlur={(e) => commitName(e.currentTarget, i)}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Add ${name} to a scene`}
+                      aria-expanded={adding?.name === name}
+                      className="group/plus absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted opacity-0 hover:bg-foreground/15 hover:text-foreground focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/70 group-hover/char:opacity-100 group-focus-within/char:opacity-100"
+                      onClick={() => setAdding(adding?.name === name ? null : { name, text: "", result: null })}
+                    >
+                      <svg aria-hidden viewBox="0 0 16 16" className="h-3.5 w-3.5 stroke-current" strokeWidth={1.75} strokeLinecap="round">
+                        <path d="M8 3v10M3 8h10" />
+                      </svg>
+                      {/* Shown on hover/focus (to the left, so the list's scrolling can't clip it). */}
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute right-full top-1/2 mr-1.5 hidden -translate-y-1/2 whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 text-xs font-medium text-background shadow group-hover/plus:block group-focus-visible/plus:block"
+                      >
+                        Add to scene
+                      </span>
+                    </button>
+                  </div>
                   <button
                     type="button"
                     aria-label={`Remove ${name}`}
@@ -180,6 +207,34 @@ export function CharacterList({
                       <path d="M4 4l8 8M12 4l-8 8" />
                     </svg>
                   </button>
+                  </div>
+                  {adding?.name === name && (
+                    <form
+                      className="ml-12 mt-1 flex flex-wrap items-center gap-2"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const result = onAddToScene(name, adding.text);
+                        setAdding({ name, text: result.ok ? "" : adding.text, result });
+                      }}
+                    >
+                      <input
+                        autoFocus
+                        aria-label={`Scene number to add ${name} to`}
+                        placeholder="Scene #"
+                        inputMode="decimal"
+                        maxLength={40}
+                        className="input w-24 py-1"
+                        value={adding.text}
+                        onChange={(e) => setAdding({ ...adding, text: e.target.value, result: null })}
+                        onKeyDown={(e) => e.key === "Escape" && setAdding(null)}
+                      />
+                      <button type="submit" className="btn-secondary px-3 py-1 text-sm" disabled={!adding.text.trim()}>Add</button>
+                      <button type="button" className="text-sm text-muted hover:text-foreground" onClick={() => setAdding(null)}>Done</button>
+                      <span role="status" className={`text-sm ${adding.result?.ok === false ? "text-red-300" : "text-muted"}`}>
+                        {adding.result?.message}
+                      </span>
+                    </form>
+                  )}
                 </li>
               ))}
             </ol>

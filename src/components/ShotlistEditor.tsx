@@ -12,6 +12,7 @@ import { appendScenes, mergeScenes, scenesToRows, scriptSummary, sheetIsEmpty } 
 import { CharacterList } from "@/components/CharacterList";
 import {
   addCharacters,
+  addToScene,
   charactersInRows,
   moveCharacter,
   parseCharacters,
@@ -345,6 +346,19 @@ export function ShotlistEditor({
       setAnnouncement(`Removed ${name}`);
     }
     closeDialog();
+  }
+
+  /** The + on a character: adds them to a scene by number and says what happened. */
+  function addCharacterToScene(name: string, sceneText: string): { ok: boolean; message: string } {
+    const result = addToScene(rows, characters, name, sceneText);
+    if (result.status !== "added") {
+      return result.status === "missing"
+        ? { ok: false, message: `Scene ${result.number} doesn't exist` }
+        : { ok: true, message: `Already in scene ${result.number}` };
+    }
+    setRows(result.rows);
+    setAnnouncement(`${name} added to scene ${result.number}`);
+    return { ok: true, message: `Added to scene ${result.number}` };
   }
 
   function addCharacter(raw: string): string | null {
@@ -730,6 +744,7 @@ export function ShotlistEditor({
         onRename={renameCharacterAt}
         onRemove={requestRemoveCharacter}
         onAdd={addCharacter}
+        onAddToScene={addCharacterToScene}
       />
 
       <div

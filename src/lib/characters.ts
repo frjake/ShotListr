@@ -5,6 +5,7 @@
 
 import { ROW_KIND } from "./constants";
 import type { RowData } from "./rows";
+import { normalizeSceneNumber } from "./sceneNumbers";
 import type { ScriptScene } from "./scriptParse/scenes";
 
 const key = (name: string) => name.trim().toLowerCase();
@@ -103,4 +104,23 @@ export function removeCharacter<T extends RowData>(rows: readonly T[], list: rea
       return names.some((n) => key(n) === gone) ? { ...r, characters: names.filter((n) => key(n) !== gone).join(", ") } : r;
     }),
   };
+}
+
+export type AddToSceneResult<T> =
+  | { status: "added"; number: string; rows: T[] }
+  | { status: "already" | "missing"; number: string };
+
+/**
+ * Adds a character to the scene with the typed number ("012" finds scene 12), keeping the cell in
+ * list order. "already" if that scene lists them, "missing" if there's no such scene.
+ */
+export function addToScene<T extends RowData>(rows: readonly T[], list: readonly string[], name: string, sceneText: string): AddToSceneResult<T> {
+  const number = normalizeSceneNumber(sceneText) ?? sceneText.trim();
+  const index = rows.findIndex((r) => r.kind === ROW_KIND.SCENE && r.sceneNumber === number);
+  if (index === -1) return { status: "missing", number };
+  const cell = rows[index].characters;
+  if (parseCharacters(cell).some((n) => key(n) === key(name))) return { status: "already", number };
+  const next = [...rows];
+  next[index] = { ...rows[index], characters: sortCell(cell ? `${cell}, ${name}` : name, list) };
+  return { status: "added", number, rows: next };
 }

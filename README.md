@@ -52,7 +52,7 @@ effect right away; a new shotlist's script is stored when it's first saved.
 
 **Characters** (above the sheet) is the shotlist's character list. Autofill fills it in order of
 first mention; drag the ⠿ grip (or use ↑/↓) to reorder, click a name to rename it, or add and remove
-names. Every scene's Characters cell follows the list's order, renames and removals update the
+names. The + in a name's box ("Add to scene") adds that character to a scene by number. Every scene's Characters cell follows the list's order, renames and removals update the
 scenes, and names typed into a scene are added to the list. The download includes it as a second
 sheet.
 
